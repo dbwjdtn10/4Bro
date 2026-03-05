@@ -105,6 +105,20 @@ class AIEngine:
         self.status.groq_available = True
         self.save_config(groq_key=api_key)
 
+    def get_saved_keys(self) -> dict[str, str]:
+        """Return saved API keys from config (raw values)."""
+        if not os.path.exists(self._config_path):
+            return {}
+        try:
+            with open(self._config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+            return {
+                "gemini": config.get("gemini_api_key", ""),
+                "groq": config.get("groq_api_key", ""),
+            }
+        except Exception:
+            return {}
+
     def check_ollama(self) -> bool:
         try:
             from core.ollama_client import OllamaClient

@@ -1,4 +1,4 @@
-"""Settings dialog: API key configuration."""
+"""Settings dialog: API key configuration with change support."""
 
 from __future__ import annotations
 
@@ -11,6 +11,110 @@ from PyQt6.QtCore import Qt
 from core.engine import AIEngine
 
 
+def _mask_key(key: str) -> str:
+    """Mask API key for display: 'AIza...xY9z'"""
+    if not key:
+        return ""
+    if len(key) <= 8:
+        return key[:2] + "..." + key[-2:]
+    return key[:4] + "..." + key[-4:]
+
+
+class _KeyRow(QGroupBox):
+    """Reusable API key input row with current key display and change button."""
+
+    def __init__(self, title: str, desc: str, current_key: str, placeholder: str, parent=None):
+        super().__init__(title, parent)
+        self._current_key = current_key
+        layout = QVBoxLayout(self)
+
+        desc_label = QLabel(desc)
+        desc_label.setStyleSheet("color: #a6adc8; font-size: 11px;")
+        desc_label.setWordWrap(True)
+        layout.addWidget(desc_label)
+
+        # Current key display row
+        self._current_row = QHBoxLayout()
+
+        self._current_label = QLabel("")
+        self._current_label.setStyleSheet("color: #cdd6f4; font-size: 12px;")
+        self._current_row.addWidget(self._current_label, 1)
+
+        self._status_label = QLabel("")
+        self._status_label.setFixedWidth(50)
+        self._current_row.addWidget(self._status_label)
+
+        self._change_btn = QPushButton("변경")
+        self._change_btn.setObjectName("cancel_btn")
+        self._change_btn.setFixedSize(50, 26)
+        self._change_btn.clicked.connect(self._on_change)
+        self._current_row.addWidget(self._change_btn)
+
+        layout.addLayout(self._current_row)
+
+        # New key input row (hidden by default if key exists)
+        self._input_row = QHBoxLayout()
+
+        self._input = QLineEdit()
+        self._input.setPlaceholderText(placeholder)
+        self._input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._input_row.addWidget(self._input, 1)
+
+        self._show_btn = QPushButton("보기")
+        self._show_btn.setObjectName("cancel_btn")
+        self._show_btn.setFixedSize(50, 26)
+        self._show_btn.setCheckable(True)
+        self._show_btn.toggled.connect(self._on_toggle_show)
+        self._input_row.addWidget(self._show_btn)
+
+        self._input_widget_container = []
+        layout.addLayout(self._input_row)
+
+        # Set initial state
+        if current_key:
+            self._current_label.setText(f"현재 키: {_mask_key(current_key)}")
+            self._status_label.setText("활성")
+            self._status_label.setStyleSheet("color: #a6e3a1; font-weight: bold;")
+            self._input.hide()
+            self._show_btn.hide()
+        else:
+            self._current_label.setText("키 없음")
+            self._current_label.setStyleSheet("color: #f38ba8; font-size: 12px;")
+            self._status_label.setText("")
+            self._change_btn.hide()
+
+    def _on_change(self):
+        self._input.show()
+        self._show_btn.show()
+        self._input.setFocus()
+        self._change_btn.setText("취소")
+        self._change_btn.clicked.disconnect()
+        self._change_btn.clicked.connect(self._on_cancel_change)
+
+    def _on_cancel_change(self):
+        self._input.hide()
+        self._show_btn.hide()
+        self._input.clear()
+        self._change_btn.setText("변경")
+        self._change_btn.clicked.disconnect()
+        self._change_btn.clicked.connect(self._on_change)
+
+    def _on_toggle_show(self, checked: bool):
+        if checked:
+            self._input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self._show_btn.setText("숨김")
+        else:
+            self._input.setEchoMode(QLineEdit.EchoMode.Password)
+            self._show_btn.setText("보기")
+
+    def get_new_key(self) -> str:
+        """Return new key if entered, empty string otherwise."""
+        return self._input.text().strip()
+
+    def has_existing_key(self) -> bool:
+        return bool(self._current_key)
+
+
 class SettingsDialog(QDialog):
     """API key and engine settings dialog."""
 
@@ -18,62 +122,32 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self._engine = engine
         self.setWindowTitle("4Bro 설정")
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(520)
         self._init_ui()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
 
-        # Gemini API Key
-        gemini_group = QGroupBox("Gemini API (1순위 - 필수)")
-        gemini_layout = QVBoxLayout(gemini_group)
+        saved = self._engine.get_saved_keys()
 
-        gemini_desc = QLabel(
-            "Google AI Studio에서 무료 발급:\n"
-            "https://aistudio.google.com → Get API Key"
+        # Gemini
+        self._gemini_row = _KeyRow(
+            title="Gemini API (1순위 - 필수)",
+            desc="Google AI Studio에서 무료 발급:  https://aistudio.google.com → Get API Key",
+            current_key=saved.get("gemini", ""),
+            placeholder="새 Gemini API 키 입력...",
         )
-        gemini_desc.setStyleSheet("color: #a6adc8; font-size: 11px;")
-        gemini_desc.setWordWrap(True)
-        gemini_layout.addWidget(gemini_desc)
+        layout.addWidget(self._gemini_row)
 
-        key_row1 = QHBoxLayout()
-        self._gemini_input = QLineEdit()
-        self._gemini_input.setPlaceholderText("Gemini API 키 입력...")
-        self._gemini_input.setEchoMode(QLineEdit.EchoMode.Password)
-        key_row1.addWidget(self._gemini_input, 1)
-
-        self._gemini_status = QLabel("")
-        self._gemini_status.setFixedWidth(80)
-        key_row1.addWidget(self._gemini_status)
-        gemini_layout.addLayout(key_row1)
-
-        layout.addWidget(gemini_group)
-
-        # Groq API Key
-        groq_group = QGroupBox("Groq API (2순위 - 선택)")
-        groq_layout = QVBoxLayout(groq_group)
-
-        groq_desc = QLabel(
-            "Groq에서 무료 발급:\n"
-            "https://console.groq.com → API Keys"
+        # Groq
+        self._groq_row = _KeyRow(
+            title="Groq API (2순위 - 선택)",
+            desc="Groq에서 무료 발급:  https://console.groq.com → API Keys",
+            current_key=saved.get("groq", ""),
+            placeholder="새 Groq API 키 입력 (선택사항)...",
         )
-        groq_desc.setStyleSheet("color: #a6adc8; font-size: 11px;")
-        groq_desc.setWordWrap(True)
-        groq_layout.addWidget(groq_desc)
-
-        key_row2 = QHBoxLayout()
-        self._groq_input = QLineEdit()
-        self._groq_input.setPlaceholderText("Groq API 키 입력 (선택사항)...")
-        self._groq_input.setEchoMode(QLineEdit.EchoMode.Password)
-        key_row2.addWidget(self._groq_input, 1)
-
-        self._groq_status = QLabel("")
-        self._groq_status.setFixedWidth(80)
-        key_row2.addWidget(self._groq_status)
-        groq_layout.addLayout(key_row2)
-
-        layout.addWidget(groq_group)
+        layout.addWidget(self._groq_row)
 
         # Ollama info
         ollama_group = QGroupBox("Local Ollama (3순위 - 자동)")
@@ -82,24 +156,12 @@ class SettingsDialog(QDialog):
         ollama_layout.addWidget(self._ollama_status)
         layout.addWidget(ollama_group)
 
-        # Check Ollama
         if self._engine.check_ollama():
             self._ollama_status.setText("Ollama 감지됨 (API 한도 초과 시 자동 전환)")
             self._ollama_status.setStyleSheet("color: #a6e3a1;")
         else:
             self._ollama_status.setText("Ollama 미설치 (선택사항 - ollama.com)")
             self._ollama_status.setStyleSheet("color: #a6adc8;")
-
-        # Load existing keys (show masked)
-        if self._engine.status.gemini_available:
-            self._gemini_input.setPlaceholderText("(키 저장됨)")
-            self._gemini_status.setText("활성")
-            self._gemini_status.setStyleSheet("color: #a6e3a1; font-weight: bold;")
-
-        if self._engine.status.groq_available:
-            self._groq_input.setPlaceholderText("(키 저장됨)")
-            self._groq_status.setText("활성")
-            self._groq_status.setStyleSheet("color: #a6e3a1; font-weight: bold;")
 
         # Buttons
         btn_row = QHBoxLayout()
@@ -117,8 +179,8 @@ class SettingsDialog(QDialog):
         layout.addLayout(btn_row)
 
     def _on_save(self):
-        gemini_key = self._gemini_input.text().strip()
-        groq_key = self._groq_input.text().strip()
+        gemini_key = self._gemini_row.get_new_key()
+        groq_key = self._groq_row.get_new_key()
 
         if gemini_key:
             self._engine.setup_gemini(gemini_key)
