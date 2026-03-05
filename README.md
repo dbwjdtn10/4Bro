@@ -3,6 +3,8 @@
 광고 마케터를 위한 데스크톱 AI 어시스턴트입니다.
 Gemini API를 사용하며, 광고 카피 작성부터 캠페인 기획까지 한 곳에서 처리할 수 있습니다.
 
+> Architecture & Flow 문서: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
 ---
 
 ## 시작하기
