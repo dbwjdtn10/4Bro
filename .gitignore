@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+*.pyo
+
+# Build
+build/
+dist/
+*.spec.bak
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Data (API keys, DB)
+config.json
+*.db
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
