@@ -1,15 +1,20 @@
 """Ollama SDK wrapper for local model fallback."""
 
+import threading
+
 import ollama
 
 
 class OllamaClient:
     _instance = None
+    _lock = threading.Lock()
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._client = ollama.Client()
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._client = ollama.Client()
         return cls._instance
 
     def is_available(self) -> bool:

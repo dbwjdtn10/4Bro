@@ -15,6 +15,8 @@ def _mask_key(key: str) -> str:
     """Mask API key for display: 'AIza...xY9z'"""
     if not key:
         return ""
+    if len(key) <= 4:
+        return key[0] + "..." if len(key) >= 1 else "..."
     if len(key) <= 8:
         return key[:2] + "..." + key[-2:]
     return key[:4] + "..." + key[-4:]

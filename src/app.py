@@ -1,9 +1,9 @@
-"""Application bootstrap for 4Bro v2.0."""
+"""Application bootstrap for 4Bro."""
 
 import sys
 
 from PyQt6.QtWidgets import QApplication, QSplashScreen
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPixmap, QColor, QPainter, QFont
 
 from core.engine import AIEngine
@@ -58,4 +58,23 @@ def run():
         dialog = SettingsDialog(engine, window)
         dialog.exec()
 
+    # Check for updates after startup (delay 3 seconds)
+    QTimer.singleShot(3000, lambda: _check_for_updates(window))
+
     sys.exit(app.exec())
+
+
+def _check_for_updates(window: MainWindow):
+    from core.updater import UpdateChecker
+    from gui.update_dialog import UpdateDialog
+
+    checker = UpdateChecker()
+
+    def on_update_available(version, notes, url):
+        dialog = UpdateDialog(version, notes, url, parent=window)
+        dialog.exec()
+
+    checker.update_available.connect(on_update_available)
+    checker.start()
+    # Keep reference to prevent garbage collection
+    window._update_checker = checker

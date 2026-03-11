@@ -15,6 +15,7 @@ from PyQt6.QtCore import Qt, QTimer
 
 from core.engine import AIEngine
 from core.database import Database
+from core.version import VERSION
 from core.prompts import get_system_prompt, build_chat_messages
 from core.worker import StreamWorker
 from core.agent import AGENT_WORKFLOWS, AgentWorker
@@ -39,11 +40,11 @@ class MainWindow(QMainWindow):
         self._current_project_id: int | None = None
         self._mode: str = "ad_expert"
 
-        self.setWindowTitle("4Bro - AI 광고 어시스턴트")
+        self.setWindowTitle(f"4Bro v{VERSION} - AI 광고 어시스턴트")
         self.resize(1100, 750)
         self._init_ui()
         self._start_status_timer()
-        self._sidebar.refresh_conversations()
+        self._sidebar.refresh_conversations(None)
 
     def _init_ui(self):
         central = QWidget()
@@ -56,6 +57,7 @@ class MainWindow(QMainWindow):
         self._sidebar = Sidebar(self._db)
         self._sidebar.new_chat_requested.connect(self._on_new_chat)
         self._sidebar.conversation_selected.connect(self._on_conv_selected)
+        self._sidebar.conversation_deleted.connect(self._on_conv_deleted)
         self._sidebar.project_selected.connect(self._on_project_selected)
         self._sidebar.project_cleared.connect(self._on_project_cleared)
         self._sidebar.new_project_requested.connect(self._on_new_project)
@@ -170,6 +172,11 @@ class MainWindow(QMainWindow):
         if image_paths:
             names = [os.path.basename(p) for p in image_paths]
             display_text = f"[이미지: {', '.join(names)}]\n\n{text}"
+
+        # Warn user if input is very long
+        if len(text) > 60000 or len(doc_text) > 80000:
+            display_text += "\n\n⚠️ 텍스트가 매우 길어 일부만 AI에게 전달됩니다."
+
         self._chat.add_message("user", display_text)
         self._chat_history.append({"role": "user", "content": text})
 
@@ -187,6 +194,7 @@ class MainWindow(QMainWindow):
         self._worker.token_received.connect(self._on_token)
         self._worker.stream_finished.connect(self._on_stream_finished)
         self._worker.stream_error.connect(self._on_stream_error)
+        self._worker.stream_cancelled.connect(self._on_stream_cancelled)
         self._worker.engine_switched.connect(lambda _: self._update_engine_status())
         self._worker.start()
 
@@ -201,6 +209,14 @@ class MainWindow(QMainWindow):
         self._update_engine_status()
         if self._current_conv_id:
             self._db.add_message(self._current_conv_id, "assistant", full_text)
+
+    def _on_stream_cancelled(self):
+        self._chat.finish_streaming()
+        # Remove orphaned user message so AI doesn't see unanswered question
+        if self._chat_history and self._chat_history[-1]["role"] == "user":
+            self._chat_history.pop()
+        self._input_bar.set_enabled(True)
+        self._input_bar.set_focus()
 
     def _on_stream_error(self, error: str):
         self._chat.finish_streaming()
@@ -245,6 +261,7 @@ class MainWindow(QMainWindow):
 
         self._db.add_message(self._current_conv_id, "user", f"[에이전트: {wf.display_name}] {text}")
         self._chat.add_message("user", f"[에이전트: {wf.display_name}]\n{text}")
+        self._chat_history.append({"role": "user", "content": f"[에이전트: {wf.display_name}] {text}"})
         self._chat.add_message("assistant", f"'{wf.display_name}' 워크플로우를 시작합니다. ({len(wf.steps)}단계)")
 
         system_prompt = get_system_prompt(self._mode)
@@ -253,19 +270,11 @@ class MainWindow(QMainWindow):
             if ctx:
                 system_prompt += f"\n\n{ctx}"
 
-        # Web search context for competitor research
-        search_context = ""
-        if workflow_id == "competitor_research":
-            try:
-                from core.web_search import search_web, format_search_results
-                self._status_bar.showMessage("웹 검색 중...", 5000)
-                results = search_web(text, max_results=5)
-                search_context = f"[웹 검색 결과]\n{format_search_results(results)}"
-            except Exception:
-                search_context = "(웹 검색 실패)"
+        # Web search will run in AgentWorker thread (non-blocking)
+        search_query = text if workflow_id == "competitor_research" else ""
 
         self._agent_worker = AgentWorker(
-            self._engine, wf, text, system_prompt, search_context,
+            self._engine, wf, text, system_prompt, search_query=search_query,
         )
         self._agent_worker.step_started.connect(
             lambda i, name: self._on_agent_step_started(i, name, len(wf.steps))
@@ -304,6 +313,7 @@ class MainWindow(QMainWindow):
         if self._current_conv_id:
             self._db.add_message(self._current_conv_id, "assistant", combined_text)
 
+        self._chat_history.append({"role": "assistant", "content": combined_text})
         self._agent_worker = None
 
     def _on_agent_error(self, error: str):
@@ -399,6 +409,10 @@ class MainWindow(QMainWindow):
         self._chat.clear_chat()
         self._chat.add_message("assistant", "새 대화를 시작합니다. 무엇을 도와드릴까요?")
 
+    def _on_conv_deleted(self, conv_id: int):
+        if conv_id == self._current_conv_id:
+            self._on_new_chat()
+
     def _on_conv_selected(self, conv_id: int):
         if conv_id == self._current_conv_id:
             return
@@ -411,11 +425,18 @@ class MainWindow(QMainWindow):
             self._chat_history.append({"role": msg["role"], "content": msg["content"]})
 
         conv = self._db.get_conversation(conv_id)
-        if conv and conv.get("project_id"):
-            self._current_project_id = conv["project_id"]
-            proj = self._db.get_project(self._current_project_id)
-            if proj:
-                self._project_label.setText(f"프로젝트: {proj['name']}")
+        if conv:
+            if conv.get("project_id"):
+                self._current_project_id = conv["project_id"]
+                proj = self._db.get_project(self._current_project_id)
+                if proj:
+                    self._project_label.setText(f"프로젝트: {proj['name']}")
+            # Restore conversation mode
+            saved_mode = conv.get("mode", "ad_expert")
+            self._mode = saved_mode
+            idx = self._mode_combo.findData(saved_mode)
+            if idx >= 0:
+                self._mode_combo.setCurrentIndex(idx)
 
         self._sidebar.set_active_conversation(conv_id)
 
@@ -432,7 +453,7 @@ class MainWindow(QMainWindow):
     def _on_project_cleared(self):
         self._current_project_id = None
         self._project_label.setText("")
-        self._sidebar.refresh_conversations()
+        self._sidebar.refresh_conversations(None)
 
     def _on_new_project(self):
         from gui.project_dialog import ProjectDialog
@@ -481,7 +502,9 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
+            self._worker.wait(3000)
         if self._agent_worker and self._agent_worker.isRunning():
             self._agent_worker.cancel()
+            self._agent_worker.wait(3000)
         self._db.close()
         super().closeEvent(event)

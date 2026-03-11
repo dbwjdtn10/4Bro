@@ -166,15 +166,21 @@ class AIEngine:
 
         last_error = None
         for engine_type in engines_to_try:
+            had_tokens = False
             try:
-                yield from self._stream_with_engine(
+                for chunk in self._stream_with_engine(
                     engine_type, messages, system_prompt, image_paths
-                )
+                ):
+                    had_tokens = True
+                    yield chunk
                 self.status.current = engine_type
                 self._increment_count(engine_type)
                 return
             except Exception as e:
                 last_error = e
+                if had_tokens:
+                    # Already yielded partial tokens — fallback would corrupt output
+                    raise
                 continue
 
         raise RuntimeError(

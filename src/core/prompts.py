@@ -57,6 +57,86 @@ def get_system_prompt(mode: str = "ad_expert") -> str:
     return SYSTEM_PROMPTS.get(mode, SYSTEM_AD_EXPERT)
 
 
+# Approximate char limits (1 token ≈ 3~4 chars for Korean)
+# Gemini 2.5 Flash has 1M tokens, but keeping conservative for Groq (128k context)
+MAX_USER_INPUT_CHARS = 60000       # ~15k tokens — after cleaning, allows longer input
+MAX_DOC_CHARS = 80000              # ~20k tokens — attached document limit
+MAX_HISTORY_CHARS = 80000          # ~20k tokens — total history limit
+TRUNCATION_NOTICE = "\n\n⚠️ [텍스트가 너무 길어 일부만 포함되었습니다]"
+
+
+_CLEAN_THRESHOLD = 3000  # Only clean text longer than this (likely web-copied)
+
+
+def _clean_text(text: str) -> str:
+    """Clean and compress text to reduce token waste.
+
+    Only applies to long text (>3000 chars) that is likely web-copied.
+    Short normal messages are returned as-is.
+    """
+    if len(text) < _CLEAN_THRESHOLD:
+        return text
+
+    import re
+
+    # Strip HTML tags (from web copy-paste)
+    text = re.sub(r'<[^>]+>', ' ', text)
+
+    # Remove common web footer/boilerplate lines (only full-line matches)
+    text = re.sub(
+        r'^.{0,10}(Copyright|©|All [Rr]ights [Rr]eserved'
+        r'|개인정보\s*처리방침|이용약관|사업자\s*등록번호'
+        r'|통신판매업\s*신고).+$',
+        '', text, flags=re.MULTILINE
+    )
+
+    # Collapse multiple whitespace/newlines
+    text = re.sub(r'[ \t]+', ' ', text)          # multiple spaces → single
+    text = re.sub(r'\n{3,}', '\n\n', text)       # 3+ newlines → 2
+    text = re.sub(r'(\n\s*){3,}', '\n\n', text)  # blank line spam
+
+    # Remove duplicate consecutive lines
+    lines = text.split('\n')
+    deduped = []
+    prev = None
+    for line in lines:
+        stripped = line.strip()
+        if stripped != prev:
+            deduped.append(line)
+            prev = stripped
+    text = '\n'.join(deduped)
+
+    return text.strip()
+
+
+def _truncate(text: str, limit: int) -> tuple[str, bool]:
+    """Truncate text to limit chars. Returns (text, was_truncated)."""
+    if len(text) <= limit:
+        return text, False
+    return text[:limit] + TRUNCATION_NOTICE, True
+
+
+def _trim_history(history: list[dict], char_limit: int) -> list[dict]:
+    """Keep recent history within char_limit, dropping oldest pairs first.
+
+    Removes messages in user/assistant pairs to keep role alternation valid.
+    """
+    total = sum(len(m["content"]) for m in history)
+    if total <= char_limit:
+        return list(history)
+
+    trimmed = list(history)
+    while len(trimmed) >= 2 and total > char_limit:
+        # Remove oldest pair (user + assistant)
+        removed1 = trimmed.pop(0)
+        total -= len(removed1["content"])
+        if trimmed and trimmed[0]["role"] != removed1["role"]:
+            removed2 = trimmed.pop(0)
+            total -= len(removed2["content"])
+
+    return trimmed
+
+
 def build_chat_messages(
     history: list[dict],
     user_input: str,
@@ -66,13 +146,25 @@ def build_chat_messages(
 
     history: [{"role": "user"|"assistant", "content": str}, ...]
     Returns messages WITHOUT system prompt (system prompt handled separately by engine).
+    Cleans text, truncates long inputs, and trims old history to prevent token overflow.
     """
-    messages = list(history)
+    # Clean text first (removes noise, compresses whitespace)
+    user_input = _clean_text(user_input)
+    if doc_text:
+        doc_text = _clean_text(doc_text)
 
-    # If document is attached, prepend it to user message
+    # Truncate if still too long after cleaning
+    user_input, _ = _truncate(user_input, MAX_USER_INPUT_CHARS)
+    if doc_text:
+        doc_text, _ = _truncate(doc_text, MAX_DOC_CHARS)
+
+    # Trim history to fit token budget
+    messages = _trim_history(history, MAX_HISTORY_CHARS)
+
+    # Build final user message
     if doc_text:
         user_content = (
-            f"[첨부 문서 내용]\n{doc_text[:50000]}\n\n"
+            f"[첨부 문서 내용]\n{doc_text}\n\n"
             f"---\n\n{user_input}"
         )
     else:

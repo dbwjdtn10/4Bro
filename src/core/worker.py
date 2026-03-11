@@ -11,6 +11,7 @@ class StreamWorker(QThread):
     token_received = pyqtSignal(str)
     stream_finished = pyqtSignal(str)  # full response text
     stream_error = pyqtSignal(str)
+    stream_cancelled = pyqtSignal()    # emitted when cancelled
     engine_switched = pyqtSignal(str)  # engine name after completion
 
     def __init__(
@@ -40,7 +41,10 @@ class StreamWorker(QThread):
                     break
                 full_response += chunk
                 self.token_received.emit(chunk)
-            self.stream_finished.emit(full_response)
-            self.engine_switched.emit(self._engine.get_current_engine_name())
+            if self._cancelled:
+                self.stream_cancelled.emit()
+            else:
+                self.stream_finished.emit(full_response)
+                self.engine_switched.emit(self._engine.get_current_engine_name())
         except Exception as e:
             self.stream_error.emit(str(e))

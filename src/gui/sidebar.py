@@ -18,6 +18,7 @@ class Sidebar(QWidget):
 
     new_chat_requested = pyqtSignal()
     conversation_selected = pyqtSignal(int)  # conversation DB id
+    conversation_deleted = pyqtSignal(int)   # deleted conversation DB id
     project_selected = pyqtSignal(int)       # project DB id
     project_cleared = pyqtSignal()           # no project selected
     edit_project_requested = pyqtSignal(int)  # project DB id
@@ -26,6 +27,7 @@ class Sidebar(QWidget):
     def __init__(self, db: Database, parent=None):
         super().__init__(parent)
         self._db = db
+        self._current_project_filter: int | None = None
         self.setObjectName("sidebar")
         self.setFixedWidth(220)
         self._init_ui()
@@ -155,9 +157,13 @@ class Sidebar(QWidget):
 
     # --- Conversations ---
 
-    def refresh_conversations(self, project_id: int | None = None):
+    _KEEP_FILTER = object()
+
+    def refresh_conversations(self, project_id=_KEEP_FILTER):
+        if project_id is not Sidebar._KEEP_FILTER:
+            self._current_project_filter = project_id
         self._conv_list.clear()
-        convs = self._db.list_conversations(project_id)
+        convs = self._db.list_conversations(self._current_project_filter)
         for conv in convs:
             title = conv["title"] or f"대화 #{conv['id']}"
             item = QListWidgetItem(title)
@@ -186,8 +192,8 @@ class Sidebar(QWidget):
         action = menu.exec(self._conv_list.mapToGlobal(pos))
         if action == delete_action:
             self._db.delete_conversation(conv_id)
-            # Refresh with current filter
-            self.refresh_conversations()
+            self.refresh_conversations(Sidebar._KEEP_FILTER)
+            self.conversation_deleted.emit(conv_id)
 
     def set_active_conversation(self, conv_id: int):
         for i in range(self._conv_list.count()):

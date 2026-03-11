@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from string import Template
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -42,7 +43,7 @@ _register(AgentWorkflow(
             name="원본 카피 확인",
             prompt=(
                 "사용자가 제공한 원본 카피를 확인하고 핵심 메시지를 정리하세요.\n\n"
-                "사용자 입력:\n{user_input}\n\n"
+                "사용자 입력:\n$user_input\n\n"
                 "다음을 출력하세요:\n"
                 "## 원본 카피\n## 핵심 메시지\n## 타겟 톤"
             ),
@@ -51,7 +52,7 @@ _register(AgentWorkflow(
             name="매체별 변형",
             prompt=(
                 "이전 분석을 바탕으로 각 매체별 규격에 맞게 카피를 변형하세요.\n\n"
-                "--- 이전 분석 ---\n{prev_results}\n---\n\n"
+                "--- 이전 분석 ---\n$prev_results\n---\n\n"
                 + get_all_media_prompt() + "\n\n"
                 "각 매체별로 헤드라인 + 설명문을 규격에 맞게 작성하세요."
             ),
@@ -61,7 +62,7 @@ _register(AgentWorkflow(
             name="최종 정리",
             prompt=(
                 "매체별 변형 결과를 깔끔하게 정리하세요.\n\n"
-                "--- 변형 결과 ---\n{prev_results}\n---\n\n"
+                "--- 변형 결과 ---\n$prev_results\n---\n\n"
                 "매체별로 표 형식으로 정리하고, 글자수를 표시해주세요."
             ),
             depends_on=["매체별 변형"],
@@ -78,7 +79,7 @@ _register(AgentWorkflow(
             name="타겟 분석",
             prompt=(
                 "다음 제품/캠페인의 타겟을 분석하세요.\n\n"
-                "사용자 입력:\n{user_input}\n\n"
+                "사용자 입력:\n$user_input\n\n"
                 "## 핵심 타겟 페르소나\n## 타겟 인구통계\n"
                 "## 심리/행동 특성\n## 미디어 소비 패턴\n## 구매 동기 및 장벽"
             ),
@@ -87,7 +88,7 @@ _register(AgentWorkflow(
             name="전략 수립",
             prompt=(
                 "타겟 분석을 바탕으로 마케팅 전략을 수립하세요.\n\n"
-                "--- 타겟 분석 ---\n{prev_results}\n---\n\n"
+                "--- 타겟 분석 ---\n$prev_results\n---\n\n"
                 "## 캠페인 컨셉\n## 핵심 메시지 전략\n"
                 "## 채널 전략\n## 실행 타임라인"
             ),
@@ -97,7 +98,7 @@ _register(AgentWorkflow(
             name="광고 카피",
             prompt=(
                 "전략에 맞는 광고 카피를 작성하세요.\n\n"
-                "--- 전략 ---\n{prev_results}\n---\n\n"
+                "--- 전략 ---\n$prev_results\n---\n\n"
                 "## 헤드라인 (10개)\n## 서브 헤드라인 (5개)\n"
                 "## 바디카피 (3개 버전)\n## CTA 문구 (5개)"
             ),
@@ -107,7 +108,7 @@ _register(AgentWorkflow(
             name="SNS 콘텐츠",
             prompt=(
                 "전략에 맞는 SNS 콘텐츠를 작성하세요.\n\n"
-                "--- 전략 ---\n{prev_results}\n---\n\n"
+                "--- 전략 ---\n$prev_results\n---\n\n"
                 "## 인스타그램 (캡션 + 해시태그 30개)\n"
                 "## 페이스북 (포스팅 + 링크 설명)\n"
                 "## 카카오채널 (알림톡 문구)"
@@ -118,7 +119,7 @@ _register(AgentWorkflow(
             name="캠페인 기획서",
             prompt=(
                 "모든 결과를 종합하여 캠페인 기획서를 작성하세요.\n\n"
-                "--- 전체 결과 ---\n{prev_results}\n---\n\n"
+                "--- 전체 결과 ---\n$prev_results\n---\n\n"
                 "# 캠페인 기획서\n## 1. 캠페인 개요\n## 2. 타겟 분석 요약\n"
                 "## 3. 전략 방향\n## 4. 크리에이티브 전략\n"
                 "## 5. 채널 믹스\n## 6. KPI 및 성과 측정"
@@ -137,7 +138,7 @@ _register(AgentWorkflow(
             name="검색 키워드 도출",
             prompt=(
                 "다음 요청에서 경쟁사 리서치를 위한 검색 키워드를 도출하세요.\n\n"
-                "사용자 입력:\n{user_input}\n\n"
+                "사용자 입력:\n$user_input\n\n"
                 "## 핵심 검색 키워드 (5개)\n"
                 "## 검색 방향\n## 조사 포인트"
             ),
@@ -146,8 +147,8 @@ _register(AgentWorkflow(
             name="정보 분석",
             prompt=(
                 "도출된 키워드를 바탕으로 경쟁사 마케팅을 분석하세요.\n\n"
-                "--- 이전 분석 ---\n{prev_results}\n---\n\n"
-                "{search_context}\n\n"
+                "--- 이전 분석 ---\n$prev_results\n---\n\n"
+                "$search_context\n\n"
                 "## 경쟁사별 마케팅 전략\n## 주요 메시지/카피\n"
                 "## 사용 채널\n## 강점/약점"
             ),
@@ -157,7 +158,7 @@ _register(AgentWorkflow(
             name="차별화 전략",
             prompt=(
                 "경쟁사 분석을 바탕으로 차별화 전략을 제안하세요.\n\n"
-                "--- 분석 결과 ---\n{prev_results}\n---\n\n"
+                "--- 분석 결과 ---\n$prev_results\n---\n\n"
                 "## 차별화 포인트\n## 제안 전략 (3~5개)\n"
                 "## 실행 우선순위\n## 예상 효과"
             ),
@@ -175,7 +176,7 @@ _register(AgentWorkflow(
             name="방향 분석",
             prompt=(
                 "다음 요청의 광고 방향을 분석하세요.\n\n"
-                "사용자 입력:\n{user_input}\n\n"
+                "사용자 입력:\n$user_input\n\n"
                 "## 제품 USP\n## 추천 톤앤매너\n"
                 "## 크리에이티브 컨셉 (3개)\n## 추천 매체"
             ),
@@ -184,7 +185,7 @@ _register(AgentWorkflow(
             name="대량 생성",
             prompt=(
                 "분석된 방향을 바탕으로 카피를 대량 생성하세요.\n\n"
-                "--- 방향 ---\n{prev_results}\n---\n\n"
+                "--- 방향 ---\n$prev_results\n---\n\n"
                 "## 헤드라인 (50개)\n"
                 "각 컨셉별로 15~20개씩 작성하세요.\n"
                 "다양한 톤과 스타일을 섞어주세요."
@@ -195,7 +196,7 @@ _register(AgentWorkflow(
             name="분류 정리",
             prompt=(
                 "생성된 카피를 분류하고 정리하세요.\n\n"
-                "--- 생성 결과 ---\n{prev_results}\n---\n\n"
+                "--- 생성 결과 ---\n$prev_results\n---\n\n"
                 "## 컨셉별 분류\n## TOP 10 추천\n"
                 "## 매체별 추천 (GFA/GDN/SNS)\n## 톤별 분류 (강렬/감성/유머)"
             ),
@@ -213,7 +214,7 @@ _register(AgentWorkflow(
             name="데이터 분석",
             prompt=(
                 "다음 내용을 분석하세요.\n\n"
-                "사용자 입력:\n{user_input}\n\n"
+                "사용자 입력:\n$user_input\n\n"
                 "## 핵심 데이터 요약\n## 주요 수치\n## 트렌드 분석"
             ),
         ),
@@ -221,7 +222,7 @@ _register(AgentWorkflow(
             name="성과 요약",
             prompt=(
                 "분석 결과를 성과 중심으로 요약하세요.\n\n"
-                "--- 분석 ---\n{prev_results}\n---\n\n"
+                "--- 분석 ---\n$prev_results\n---\n\n"
                 "## 성과 하이라이트\n## 목표 대비 달성률\n## 채널별 성과"
             ),
             depends_on=["데이터 분석"],
@@ -230,7 +231,7 @@ _register(AgentWorkflow(
             name="인사이트 및 제안",
             prompt=(
                 "성과를 바탕으로 인사이트와 다음 액션을 제안하세요.\n\n"
-                "--- 성과 ---\n{prev_results}\n---\n\n"
+                "--- 성과 ---\n$prev_results\n---\n\n"
                 "## 핵심 인사이트 (5개)\n## 개선 포인트\n"
                 "## 다음 캠페인 제안\n## 예산 재분배 제안"
             ),
@@ -256,6 +257,7 @@ class AgentWorker(QThread):
         user_input: str,
         system_prompt: str = "",
         search_context: str = "",
+        search_query: str = "",
     ):
         super().__init__()
         self._engine = engine
@@ -263,6 +265,7 @@ class AgentWorker(QThread):
         self._user_input = user_input
         self._system_prompt = system_prompt
         self._search_context = search_context
+        self._search_query = search_query
         self._cancelled = False
         self._results: dict[str, str] = {}
 
@@ -277,6 +280,15 @@ class AgentWorker(QThread):
                 self.workflow_error.emit(str(e))
 
     def _execute(self):
+        # Run web search in this worker thread (non-blocking for UI)
+        if self._search_query and not self._search_context:
+            try:
+                from core.web_search import search_web, format_search_results
+                results = search_web(self._search_query, max_results=5)
+                self._search_context = f"[웹 검색 결과]\n{format_search_results(results)}"
+            except Exception:
+                self._search_context = "(웹 검색 실패)"
+
         all_results = []
 
         for i, step in enumerate(self._workflow.steps):
@@ -289,7 +301,7 @@ class AgentWorker(QThread):
             prev_results = "\n\n".join(
                 f"### {name}\n{text}" for name, text in self._results.items()
             )
-            prompt = step.prompt.format(
+            prompt = Template(step.prompt).safe_substitute(
                 user_input=self._user_input,
                 prev_results=prev_results,
                 search_context=self._search_context,

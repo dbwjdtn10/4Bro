@@ -74,7 +74,7 @@ class InputBar(QWidget):
         self._attach_btn = QPushButton("📎")
         self._attach_btn.setObjectName("attach_btn")
         self._attach_btn.setFixedSize(36, 36)
-        self._attach_btn.setToolTip("파일 첨부 (PDF, Word, txt)")
+        self._attach_btn.setToolTip("파일 첨부 (PDF, Word, Excel, PPT, CSV, 텍스트)")
         self._attach_btn.clicked.connect(self._on_attach_file)
         input_row.addWidget(self._attach_btn)
 
@@ -105,7 +105,7 @@ class InputBar(QWidget):
     def _on_attach_file(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "파일 첨부", "",
-            "Documents (*.pdf *.docx *.doc *.txt);;All Files (*)",
+            "Documents (*.pdf *.docx *.xlsx *.pptx *.csv *.txt *.md *.json *.xml *.html *.yaml *.yml *.log);;All Files (*)",
         )
         if path:
             try:
@@ -117,10 +117,56 @@ class InputBar(QWidget):
                 )
                 self._attach_label.show()
                 self._attach_label.mousePressEvent = lambda e: self._clear_doc()
+            except ValueError as e:
+                if str(e) == "NO_TEXT" and path.lower().endswith(".pdf"):
+                    # Scanned PDF → render as images for Gemini vision
+                    self._attach_scanned_pdf(path)
+                else:
+                    self._attach_label.setText(f"파일 읽기 실패: {e}")
+                    self._attach_label.show()
+                    self._doc_text = ""
             except Exception as e:
                 self._attach_label.setText(f"파일 읽기 실패: {e}")
                 self._attach_label.show()
                 self._doc_text = ""
+
+    def _attach_scanned_pdf(self, path: str):
+        """Handle scanned/image PDF by rendering pages as images."""
+        try:
+            from core.document_io import render_pdf_as_images
+            image_paths = render_pdf_as_images(path)
+            if not image_paths:
+                self._attach_label.setText("PDF에서 페이지를 읽을 수 없습니다.")
+                self._attach_label.show()
+                return
+
+            self._image_paths.extend(image_paths)
+            filename = os.path.basename(path)
+            n_pages = len(image_paths)
+            self._doc_text = f"이 PDF는 스캔된 이미지 문서입니다. 첨부된 {n_pages}장의 이미지를 분석해서 내용을 파악해 주세요."
+            self._doc_filename = filename
+
+            self._attach_label.setText(
+                f"📎 {filename} (스캔 PDF → 이미지 {n_pages}장 변환)  [x]"
+            )
+            self._attach_label.show()
+            # Clicking [x] clears both doc and images (they're linked for scanned PDFs)
+            self._attach_label.mousePressEvent = lambda e: self._clear_all_attachments()
+
+            # Also show in image label
+            self._image_label.setText(
+                f"🖼 PDF 페이지 이미지 {n_pages}장  [x]"
+            )
+            self._image_label.show()
+            self._image_label.mousePressEvent = lambda e: self._clear_all_attachments()
+        except Exception as e:
+            self._attach_label.setText(f"PDF 이미지 변환 실패: {e}")
+            self._attach_label.show()
+
+    def _clear_all_attachments(self):
+        """Clear both doc and images (used for scanned PDF where they're linked)."""
+        self._clear_doc()
+        self._clear_images()
 
     def _on_attach_image(self):
         paths, _ = QFileDialog.getOpenFileNames(

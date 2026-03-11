@@ -65,14 +65,14 @@ class MessageBubble(QFrame):
             self._save_as_word()
 
     def _save_as_word(self):
-        from PyQt6.QtWidgets import QFileDialog
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
         path, _ = QFileDialog.getSaveFileName(self, "Word로 저장", "", "Word Files (*.docx)")
         if path:
             try:
                 from core.document_io import save_to_word
                 save_to_word(self._content.text(), path)
-            except Exception:
-                pass
+            except Exception as e:
+                QMessageBox.warning(self, "저장 실패", f"Word 저장 중 오류:\n{e}")
 
     def append_text(self, text: str):
         self._content.setText(self._content.text() + text)
@@ -105,6 +105,7 @@ class ChatWidget(QScrollArea):
         self.setWidget(self._container)
 
         self._bubbles: list[MessageBubble] = []
+        self._step_headers: list[QLabel] = []
         self._streaming_bubble: MessageBubble | None = None
 
     def add_message(self, role: str, text: str) -> MessageBubble:
@@ -140,6 +141,10 @@ class ChatWidget(QScrollArea):
             self._layout.removeWidget(bubble)
             bubble.deleteLater()
         self._bubbles.clear()
+        for header in self._step_headers:
+            self._layout.removeWidget(header)
+            header.deleteLater()
+        self._step_headers.clear()
         self._streaming_bubble = None
 
     def add_step_header(self, step_name: str, step_index: int, total: int):
@@ -150,6 +155,7 @@ class ChatWidget(QScrollArea):
             "padding: 8px 12px; background-color: #313244; border-radius: 6px;"
         )
         self._layout.insertWidget(self._layout.count() - 1, header)
+        self._step_headers.append(header)
         self._scroll_to_bottom()
 
     def _scroll_to_bottom(self):

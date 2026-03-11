@@ -16,6 +16,9 @@ dist/
 config.json
 *.db
 
+# Claude Code memory
+.claude/
+
 # OS
 Thumbs.db
 Desktop.ini
