@@ -42,8 +42,7 @@ class InputBar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._doc_text = ""
-        self._doc_filename = ""
+        self._doc_texts: list[tuple[str, str]] = []  # [(filename, text), ...]
         self._image_paths: list[str] = []
         self.setObjectName("input_bar")
         self._init_ui()
@@ -103,32 +102,49 @@ class InputBar(QWidget):
         layout.addLayout(input_row)
 
     def _on_attach_file(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "파일 첨부", "",
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "파일 첨부 (여러 파일 선택 가능)", "",
             "Documents (*.pdf *.docx *.xlsx *.pptx *.csv *.txt *.md *.json *.xml *.html *.yaml *.yml *.log);;All Files (*)",
         )
-        if path:
+        if not paths:
+            return
+        from core.document_io import read_document
+        errors = []
+        for path in paths:
             try:
-                from core.document_io import read_document
-                self._doc_text = read_document(path)
-                self._doc_filename = os.path.basename(path)
-                self._attach_label.setText(
-                    f"📎 {self._doc_filename} ({len(self._doc_text):,}자)  [x]"
-                )
-                self._attach_label.show()
-                self._attach_label.mousePressEvent = lambda e: self._clear_doc()
+                text = read_document(path)
+                filename = os.path.basename(path)
+                self._doc_texts.append((filename, text))
             except ValueError as e:
                 if str(e) == "NO_TEXT" and path.lower().endswith(".pdf"):
-                    # Scanned PDF → render as images for Gemini vision
                     self._attach_scanned_pdf(path)
                 else:
-                    self._attach_label.setText(f"파일 읽기 실패: {e}")
-                    self._attach_label.show()
-                    self._doc_text = ""
-            except Exception as e:
-                self._attach_label.setText(f"파일 읽기 실패: {e}")
-                self._attach_label.show()
-                self._doc_text = ""
+                    errors.append(os.path.basename(path))
+            except Exception:
+                errors.append(os.path.basename(path))
+        self._update_attach_label()
+        if errors:
+            self._attach_label.setText(
+                self._attach_label.text() + f"  ⚠ 실패: {', '.join(errors)}"
+            )
+
+    def _update_attach_label(self):
+        """Update the attachment label to reflect all attached docs."""
+        if not self._doc_texts:
+            self._attach_label.hide()
+            self._attach_label.setText("")
+            return
+        if len(self._doc_texts) == 1:
+            fname, text = self._doc_texts[0]
+            self._attach_label.setText(f"📎 {fname} ({len(text):,}자)  [x]")
+        else:
+            total = sum(len(t) for _, t in self._doc_texts)
+            names = [f for f, _ in self._doc_texts]
+            self._attach_label.setText(
+                f"📎 {len(names)}개 파일 ({', '.join(names)}) · 총 {total:,}자  [x]"
+            )
+        self._attach_label.show()
+        self._attach_label.mousePressEvent = lambda e: self._clear_doc()
 
     def _attach_scanned_pdf(self, path: str):
         """Handle scanned/image PDF by rendering pages as images."""
@@ -143,8 +159,8 @@ class InputBar(QWidget):
             self._image_paths.extend(image_paths)
             filename = os.path.basename(path)
             n_pages = len(image_paths)
-            self._doc_text = f"이 PDF는 스캔된 이미지 문서입니다. 첨부된 {n_pages}장의 이미지를 분석해서 내용을 파악해 주세요."
-            self._doc_filename = filename
+            scan_text = f"이 PDF는 스캔된 이미지 문서입니다. 첨부된 {n_pages}장의 이미지를 분석해서 내용을 파악해 주세요."
+            self._doc_texts.append((filename, scan_text))
 
             self._attach_label.setText(
                 f"📎 {filename} (스캔 PDF → 이미지 {n_pages}장 변환)  [x]"
@@ -183,8 +199,7 @@ class InputBar(QWidget):
             self._image_label.mousePressEvent = lambda e: self._clear_images()
 
     def _clear_doc(self):
-        self._doc_text = ""
-        self._doc_filename = ""
+        self._doc_texts = []
         self._attach_label.hide()
         self._attach_label.setText("")
 
@@ -197,7 +212,17 @@ class InputBar(QWidget):
         text = self._input.toPlainText().strip()
         if not text:
             return
-        self.message_sent.emit(text, self._doc_text, list(self._image_paths))
+        # Combine all attached doc texts with file separators
+        if len(self._doc_texts) == 1:
+            combined = self._doc_texts[0][1]
+        elif self._doc_texts:
+            parts = []
+            for fname, doc in self._doc_texts:
+                parts.append(f"=== 📎 {fname} ===\n{doc}")
+            combined = "\n\n".join(parts)
+        else:
+            combined = ""
+        self.message_sent.emit(text, combined, list(self._image_paths))
         self._input.clear()
         self._clear_doc()
         self._clear_images()
