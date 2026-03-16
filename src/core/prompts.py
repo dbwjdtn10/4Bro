@@ -58,7 +58,7 @@ def get_system_prompt(mode: str = "ad_expert") -> str:
 
 
 # Approximate char limits (1 token ≈ 3~4 chars for Korean)
-# Gemini 2.5 Flash has 1M tokens, but keeping conservative for Groq (128k context)
+# Gemini 2.5 Flash has 1M tokens, keeping conservative limits
 MAX_USER_INPUT_CHARS = 60000       # ~15k tokens — after cleaning, allows longer input
 MAX_DOC_CHARS = 80000              # ~20k tokens — attached document limit
 MAX_HISTORY_CHARS = 80000          # ~20k tokens — total history limit

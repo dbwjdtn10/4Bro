@@ -43,7 +43,6 @@ def run():
 
     # Initialize
     engine = AIEngine()
-    engine.check_ollama()
     db = Database()
 
     # Create main window

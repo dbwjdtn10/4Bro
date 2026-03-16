@@ -118,7 +118,7 @@ class _KeyRow(QGroupBox):
 
 
 class SettingsDialog(QDialog):
-    """API key and engine settings dialog."""
+    """API key settings dialog."""
 
     def __init__(self, engine: AIEngine, parent=None):
         super().__init__(parent)
@@ -135,35 +135,12 @@ class SettingsDialog(QDialog):
 
         # Gemini
         self._gemini_row = _KeyRow(
-            title="Gemini API (1순위 - 필수)",
+            title="Gemini API (필수)",
             desc="Google AI Studio에서 무료 발급:  https://aistudio.google.com → Get API Key",
             current_key=saved.get("gemini", ""),
             placeholder="새 Gemini API 키 입력...",
         )
         layout.addWidget(self._gemini_row)
-
-        # Groq
-        self._groq_row = _KeyRow(
-            title="Groq API (2순위 - 선택)",
-            desc="Groq에서 무료 발급:  https://console.groq.com → API Keys",
-            current_key=saved.get("groq", ""),
-            placeholder="새 Groq API 키 입력 (선택사항)...",
-        )
-        layout.addWidget(self._groq_row)
-
-        # Ollama info
-        ollama_group = QGroupBox("Local Ollama (3순위 - 자동)")
-        ollama_layout = QVBoxLayout(ollama_group)
-        self._ollama_status = QLabel("확인 중...")
-        ollama_layout.addWidget(self._ollama_status)
-        layout.addWidget(ollama_group)
-
-        if self._engine.check_ollama():
-            self._ollama_status.setText("Ollama 감지됨 (API 한도 초과 시 자동 전환)")
-            self._ollama_status.setStyleSheet("color: #a6e3a1;")
-        else:
-            self._ollama_status.setText("Ollama 미설치 (선택사항 - ollama.com)")
-            self._ollama_status.setStyleSheet("color: #a6adc8;")
 
         # Buttons
         btn_row = QHBoxLayout()
@@ -182,12 +159,9 @@ class SettingsDialog(QDialog):
 
     def _on_save(self):
         gemini_key = self._gemini_row.get_new_key()
-        groq_key = self._groq_row.get_new_key()
 
         if gemini_key:
             self._engine.setup_gemini(gemini_key)
-        if groq_key:
-            self._engine.setup_groq(groq_key)
 
         if not self._engine.status.gemini_available and not gemini_key:
             QMessageBox.warning(

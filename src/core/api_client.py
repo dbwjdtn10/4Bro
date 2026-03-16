@@ -1,4 +1,4 @@
-"""API clients for Gemini and Groq with streaming support."""
+"""API client for Gemini with streaming support."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from typing import Generator
 
 from google import genai
 from google.genai import types
-from groq import Groq
 
 
 def _load_image_part(image_path: str) -> types.Part:
@@ -106,70 +105,5 @@ class GeminiClient:
                 contents="ping",
             )
             return bool(response.text)
-        except Exception:
-            return False
-
-
-class GroqClient:
-    """Groq API client with streaming."""
-
-    def __init__(self, api_key: str, model_name: str = "llama-3.3-70b-versatile"):
-        self._client = Groq(api_key=api_key)
-        self._model_name = model_name
-
-    @property
-    def model_name(self) -> str:
-        return self._model_name
-
-    def stream_chat(
-        self,
-        messages: list[dict],
-        system_prompt: str = "",
-        image_paths: list[str] | None = None,
-    ) -> Generator[str, None, None]:
-        """Stream chat completion. Yields text chunks.
-        Note: Groq doesn't support images, image_paths is ignored.
-        """
-        api_messages = []
-        if system_prompt:
-            api_messages.append({"role": "system", "content": system_prompt})
-
-        for msg in messages:
-            api_messages.append({
-                "role": msg["role"],
-                "content": msg["content"],
-            })
-
-        stream = self._client.chat.completions.create(
-            model=self._model_name,
-            messages=api_messages,
-            stream=True,
-            temperature=0.8,
-            max_completion_tokens=4096,
-        )
-
-        for chunk in stream:
-            delta = chunk.choices[0].delta
-            if delta.content:
-                yield delta.content
-
-    def chat_sync(
-        self,
-        messages: list[dict],
-        system_prompt: str = "",
-    ) -> str:
-        result = []
-        for chunk in self.stream_chat(messages, system_prompt):
-            result.append(chunk)
-        return "".join(result)
-
-    def is_available(self) -> bool:
-        try:
-            response = self._client.chat.completions.create(
-                model=self._model_name,
-                messages=[{"role": "user", "content": "ping"}],
-                max_completion_tokens=5,
-            )
-            return bool(response.choices)
         except Exception:
             return False
