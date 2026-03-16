@@ -1,4 +1,4 @@
-"""Document I/O: read PDF/Word/Excel/PowerPoint/CSV/text, save to Word/text."""
+"""Document I/O: read PDF/Word/Excel/PowerPoint/CSV/text, save to Word/text/PDF, clipboard."""
 
 import csv
 import os
@@ -195,3 +195,77 @@ def save_to_word(text: str, path: str):
         elif line.strip():
             doc.add_paragraph(line)
     doc.save(path)
+
+
+def save_to_pdf(messages: list[dict], filepath: str):
+    """Save conversation messages to a PDF file using Qt's QPrinter.
+
+    Args:
+        messages: List of dicts with 'role' and 'content' keys.
+        filepath: Output PDF file path.
+    """
+    from PyQt6.QtGui import QTextDocument, QFont
+    from PyQt6.QtPrintSupport import QPrinter
+
+    # Build HTML content for the PDF
+    html_parts = [
+        "<html><head><style>",
+        "body { font-family: 'Malgun Gothic', sans-serif; font-size: 11pt; }",
+        ".user { color: #1a73e8; margin-bottom: 12px; }",
+        ".assistant { color: #333; margin-bottom: 12px; }",
+        ".role-label { font-weight: bold; margin-bottom: 4px; }",
+        ".content { white-space: pre-wrap; margin-left: 8px; }",
+        "hr { border: none; border-top: 1px solid #ccc; margin: 8px 0; }",
+        "</style></head><body>",
+        "<h2>4Bro 대화 내보내기</h2><hr>",
+    ]
+
+    for msg in messages:
+        role_label = "[나]" if msg["role"] == "user" else "[4Bro]"
+        css_class = "user" if msg["role"] == "user" else "assistant"
+        # Escape HTML special characters in content
+        content = (
+            msg["content"]
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br>")
+        )
+        html_parts.append(
+            f'<div class="{css_class}">'
+            f'<div class="role-label">{role_label}</div>'
+            f'<div class="content">{content}</div>'
+            f"</div><hr>"
+        )
+
+    html_parts.append("</body></html>")
+    html = "".join(html_parts)
+
+    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+    printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+    printer.setOutputFileName(filepath)
+
+    doc = QTextDocument()
+    doc.setDefaultFont(QFont("Malgun Gothic", 10))
+    doc.setHtml(html)
+    doc.print(printer)
+
+
+def copy_to_clipboard(messages: list[dict]):
+    """Format messages as markdown text and copy to system clipboard.
+
+    Args:
+        messages: List of dicts with 'role' and 'content' keys.
+    """
+    from PyQt6.QtWidgets import QApplication
+
+    lines = []
+    for msg in messages:
+        role_label = "**[나]**" if msg["role"] == "user" else "**[4Bro]**"
+        lines.append(f"{role_label}\n{msg['content']}")
+
+    text = "\n\n---\n\n".join(lines)
+
+    clipboard = QApplication.clipboard()
+    if clipboard:
+        clipboard.setText(text)
