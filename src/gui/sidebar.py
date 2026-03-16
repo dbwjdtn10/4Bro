@@ -28,6 +28,9 @@ class Sidebar(QWidget):
         super().__init__(parent)
         self._db = db
         self._current_project_filter: int | None = None
+        self._conv_offset = 0
+        self._conv_limit = 50
+        self._has_more_convs = False
         self.setObjectName("sidebar")
         self.setFixedWidth(220)
         self._init_ui()
@@ -97,6 +100,20 @@ class Sidebar(QWidget):
         self._conv_list.customContextMenuRequested.connect(self._on_conv_context_menu)
         layout.addWidget(self._conv_list, 1)
 
+        # "Load more" button for conversation pagination
+        self._load_more_btn = QPushButton("더 보기")
+        self._load_more_btn.setStyleSheet(
+            "QPushButton {"
+            "  background-color: #313244; color: #cdd6f4; border: 1px solid #45475a;"
+            "  border-radius: 4px; padding: 4px 8px; font-size: 11px;"
+            "}"
+            "QPushButton:hover { background-color: #45475a; }"
+        )
+        self._load_more_btn.setFixedHeight(26)
+        self._load_more_btn.clicked.connect(self._on_load_more_convs)
+        self._load_more_btn.hide()
+        layout.addWidget(self._load_more_btn)
+
         # --- Recent files ---
         sep3 = QFrame()
         sep3.setFrameShape(QFrame.Shape.HLine)
@@ -155,15 +172,25 @@ class Sidebar(QWidget):
             self.refresh_projects()
             self.project_cleared.emit()
 
-    # --- Conversations ---
+    # --- Conversations (paginated) ---
 
     _KEEP_FILTER = object()
 
     def refresh_conversations(self, project_id=_KEEP_FILTER):
+        """Reload conversations from scratch (resets pagination)."""
         if project_id is not Sidebar._KEEP_FILTER:
             self._current_project_filter = project_id
         self._conv_list.clear()
-        convs = self._db.list_conversations(self._current_project_filter)
+        self._conv_offset = 0
+        self._load_conversations_page()
+
+    def _load_conversations_page(self):
+        """Load one page of conversations and append to the list."""
+        convs = self._db.list_conversations(
+            self._current_project_filter,
+            limit=self._conv_limit,
+            offset=self._conv_offset,
+        )
         for conv in convs:
             title = conv["title"] or f"대화 #{conv['id']}"
             item = QListWidgetItem(title)
@@ -172,6 +199,18 @@ class Sidebar(QWidget):
             if date_str:
                 item.setToolTip(date_str)
             self._conv_list.addItem(item)
+
+        self._conv_offset += len(convs)
+        self._has_more_convs = len(convs) >= self._conv_limit
+
+        if self._has_more_convs:
+            self._load_more_btn.show()
+        else:
+            self._load_more_btn.hide()
+
+    def _on_load_more_convs(self):
+        """Load the next page of conversations."""
+        self._load_conversations_page()
 
     def _on_conv_clicked(self, item: QListWidgetItem):
         conv_id = item.data(Qt.ItemDataRole.UserRole)

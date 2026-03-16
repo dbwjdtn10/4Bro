@@ -1,4 +1,4 @@
-"""Bottom input bar: text input, file/image attach, send button."""
+"""Bottom input bar: text input, file/image attach, image gen, send button."""
 
 from __future__ import annotations
 
@@ -39,6 +39,9 @@ class InputBar(QWidget):
 
     # (text, doc_text, list_of_image_paths)
     message_sent = pyqtSignal(str, str, list)
+
+    # Signal emitted when user requests image generation with current prompt
+    image_gen_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -84,6 +87,22 @@ class InputBar(QWidget):
         self._image_btn.setToolTip("이미지 첨부 (분석용)")
         self._image_btn.clicked.connect(self._on_attach_image)
         input_row.addWidget(self._image_btn)
+
+        # Image generation button
+        self._image_gen_btn = QPushButton("🎨")
+        self._image_gen_btn.setObjectName("attach_btn")
+        self._image_gen_btn.setFixedSize(36, 36)
+        self._image_gen_btn.setToolTip("이미지 생성 (입력 텍스트를 프롬프트로 사용)")
+        self._image_gen_btn.setStyleSheet(
+            "QPushButton {"
+            "  background-color: #313244; color: #cba6f7; border: 1px solid #45475a;"
+            "  border-radius: 6px; font-size: 16px;"
+            "}"
+            "QPushButton:hover { background-color: #45475a; border-color: #cba6f7; }"
+            "QPushButton:disabled { color: #585b70; }"
+        )
+        self._image_gen_btn.clicked.connect(self._on_image_gen)
+        input_row.addWidget(self._image_gen_btn)
 
         # Text input
         self._input = ChatInput()
@@ -227,11 +246,19 @@ class InputBar(QWidget):
         self._clear_doc()
         self._clear_images()
 
+    def _on_image_gen(self):
+        """Emit image generation request with the current input text as prompt."""
+        text = self._input.toPlainText().strip()
+        if not text:
+            return
+        self.image_gen_requested.emit(text)
+
     def set_enabled(self, enabled: bool):
         self._input.setEnabled(enabled)
         self._send_btn.setEnabled(enabled)
         self._attach_btn.setEnabled(enabled)
         self._image_btn.setEnabled(enabled)
+        self._image_gen_btn.setEnabled(enabled)
         if enabled:
             self._send_btn.setText("전송")
         else:
