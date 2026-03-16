@@ -72,6 +72,12 @@ class Database:
                 FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL,
                 FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
             );
+
+            CREATE INDEX IF NOT EXISTS idx_conversations_project_id ON conversations(project_id);
+            CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
+            CREATE INDEX IF NOT EXISTS idx_bookmarks_project_id ON bookmarks(project_id);
+            CREATE INDEX IF NOT EXISTS idx_bookmarks_conversation_id ON bookmarks(conversation_id);
             """)
             self._conn.commit()
 
@@ -200,18 +206,37 @@ class Database:
             self._conn.execute("DELETE FROM conversations WHERE id = ?", (conv_id,))
             self._conn.commit()
 
-    def list_conversations(self, project_id: int | None = None) -> list[dict]:
+    def list_conversations(
+        self, project_id: int | None = None, limit: int | None = None, offset: int = 0
+    ) -> list[dict]:
         with self._lock:
             if project_id is not None:
-                rows = self._conn.execute(
-                    "SELECT * FROM conversations WHERE project_id = ? ORDER BY updated_at DESC",
-                    (project_id,),
-                ).fetchall()
+                sql = "SELECT * FROM conversations WHERE project_id = ? ORDER BY updated_at DESC"
+                params: list = [project_id]
             else:
-                rows = self._conn.execute(
-                    "SELECT * FROM conversations ORDER BY updated_at DESC"
-                ).fetchall()
+                sql = "SELECT * FROM conversations ORDER BY updated_at DESC"
+                params = []
+
+            if limit is not None:
+                sql += " LIMIT ? OFFSET ?"
+                params.extend([limit, offset])
+
+            rows = self._conn.execute(sql, params).fetchall()
             return [dict(r) for r in rows]
+
+    def count_conversations(self, project_id: int | None = None) -> int:
+        """Return the total number of conversations, optionally filtered by project."""
+        with self._lock:
+            if project_id is not None:
+                row = self._conn.execute(
+                    "SELECT COUNT(*) FROM conversations WHERE project_id = ?",
+                    (project_id,),
+                ).fetchone()
+            else:
+                row = self._conn.execute(
+                    "SELECT COUNT(*) FROM conversations"
+                ).fetchone()
+            return row[0] if row else 0
 
     def get_conversation(self, conv_id: int) -> Optional[dict]:
         with self._lock:
@@ -236,13 +261,34 @@ class Database:
             self._conn.commit()
             return cur.lastrowid or 0
 
-    def get_messages(self, conv_id: int) -> list[dict]:
+    def get_messages(
+        self, conv_id: int, limit: int | None = None, offset: int = 0
+    ) -> list[dict]:
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT * FROM messages WHERE conversation_id = ? ORDER BY id ASC",
-                (conv_id,),
-            ).fetchall()
-            return [dict(r) for r in rows]
+            if limit is not None:
+                # Fetch the most recent N messages (with offset) by selecting
+                # in DESC order, then reverse to return in chronological order.
+                rows = self._conn.execute(
+                    "SELECT * FROM messages WHERE conversation_id = ? "
+                    "ORDER BY id DESC LIMIT ? OFFSET ?",
+                    (conv_id, limit, offset),
+                ).fetchall()
+                return [dict(r) for r in reversed(rows)]
+            else:
+                rows = self._conn.execute(
+                    "SELECT * FROM messages WHERE conversation_id = ? ORDER BY id ASC",
+                    (conv_id,),
+                ).fetchall()
+                return [dict(r) for r in rows]
+
+    def count_messages(self, conversation_id: int) -> int:
+        """Return the total number of messages in a conversation."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchone()
+            return row[0] if row else 0
 
     # === Bookmarks ===
 
@@ -260,6 +306,15 @@ class Database:
             )
             self._conn.commit()
             return cur.lastrowid or 0
+
+    def update_bookmark_label(self, bookmark_id: int, label: str):
+        """Update bookmark label/tag."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE bookmarks SET label = ? WHERE id = ?",
+                (label, bookmark_id),
+            )
+            self._conn.commit()
 
     def list_bookmarks(self, project_id: int | None = None) -> list[dict]:
         with self._lock:
