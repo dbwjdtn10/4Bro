@@ -124,7 +124,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self._engine = engine
         self.setWindowTitle("4Bro 설정")
-        self.setMinimumWidth(520)
+        self.setMinimumWidth(600)
         self._init_ui()
 
     def _init_ui(self):
@@ -142,6 +142,20 @@ class SettingsDialog(QDialog):
         )
         layout.addWidget(self._gemini_row)
 
+        # Test API key button
+        test_row = QHBoxLayout()
+        test_row.addStretch()
+        self._test_btn = QPushButton("API 키 테스트")
+        self._test_btn.setObjectName("cancel_btn")
+        self._test_btn.setFixedHeight(28)
+        self._test_btn.clicked.connect(self._on_test_key)
+        test_row.addWidget(self._test_btn)
+        self._test_result = QLabel("")
+        self._test_result.setStyleSheet("font-size: 11px;")
+        test_row.addWidget(self._test_result)
+        test_row.addStretch()
+        layout.addLayout(test_row)
+
         # Buttons
         btn_row = QHBoxLayout()
         btn_row.addStretch()
@@ -156,6 +170,35 @@ class SettingsDialog(QDialog):
         btn_row.addWidget(cancel_btn)
 
         layout.addLayout(btn_row)
+
+    def _on_test_key(self):
+        """Test if the current or new API key works."""
+        self._test_result.setText("테스트 중...")
+        self._test_result.setStyleSheet("font-size: 11px; color: #f9e2af;")
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+        # Use new key if entered, otherwise test existing
+        new_key = self._gemini_row.get_new_key()
+        if new_key:
+            try:
+                from core.api_client import GeminiClient
+                client = GeminiClient(new_key)
+                if client.is_available():
+                    self._test_result.setText("\u2713 연결 성공!")
+                    self._test_result.setStyleSheet("font-size: 11px; color: #a6e3a1;")
+                else:
+                    self._test_result.setText("\u2717 연결 실패 - 키를 확인해주세요")
+                    self._test_result.setStyleSheet("font-size: 11px; color: #f38ba8;")
+            except Exception as e:
+                self._test_result.setText(f"\u2717 오류: {str(e)[:50]}")
+                self._test_result.setStyleSheet("font-size: 11px; color: #f38ba8;")
+        elif self._engine.status.gemini_available:
+            self._test_result.setText("\u2713 현재 키 정상 작동 중")
+            self._test_result.setStyleSheet("font-size: 11px; color: #a6e3a1;")
+        else:
+            self._test_result.setText("API 키를 먼저 입력해주세요")
+            self._test_result.setStyleSheet("font-size: 11px; color: #f38ba8;")
 
     def _on_save(self):
         gemini_key = self._gemini_row.get_new_key()
