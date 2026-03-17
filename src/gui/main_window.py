@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QStatusBar, QLabel, QComboBox, QMessageBox, QPushButton,
     QFileDialog, QMenu, QLineEdit, QScrollArea,
 )
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QSettings
 from PyQt6.QtGui import QShortcut, QKeySequence
 
 from core.engine import AIEngine
@@ -81,6 +81,11 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(f"4Bro v{VERSION} - AI 광고 어시스턴트")
         self.resize(1100, 750)
+        self._settings = QSettings("4Bro", "MainWindow")
+        geometry = self._settings.value("geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+        self.setAcceptDrops(True)
         self._init_ui()
         self._init_shortcuts()
         self._start_status_timer()
@@ -102,6 +107,7 @@ class MainWindow(QMainWindow):
         self._sidebar.project_cleared.connect(self._on_project_cleared)
         self._sidebar.new_project_requested.connect(self._on_new_project)
         self._sidebar.edit_project_requested.connect(self._on_edit_project)
+        self._sidebar.template_selected.connect(self._on_template_selected)
         main_layout.addWidget(self._sidebar)
 
         # Right content
@@ -230,6 +236,8 @@ class MainWindow(QMainWindow):
         # Chat
         self._chat = ChatWidget()
         self._chat.bookmark_requested.connect(self._on_bookmark)
+        self._chat.regenerate_requested.connect(self._on_regenerate)
+        self._chat.edit_message_requested.connect(self._on_edit_message)
         right_layout.addWidget(self._chat, 1)
 
         # Queue status label (Task 5)
@@ -246,6 +254,7 @@ class MainWindow(QMainWindow):
         self._input_bar = InputBar()
         self._input_bar.message_sent.connect(self._on_message_sent)
         self._input_bar.image_gen_requested.connect(self._on_image_gen_requested)
+        self._input_bar.stop_requested.connect(self._on_stop_requested)
         right_layout.addWidget(self._input_bar)
 
         main_layout.addWidget(right, 1)
@@ -709,6 +718,137 @@ class MainWindow(QMainWindow):
             except (AttributeError, IndexError):
                 pass
 
+    # === Stop / Regenerate / Edit / Template / Drag-Drop ===
+
+    def _on_stop_requested(self):
+        """Cancel current generation."""
+        if self._worker and self._worker.isRunning():
+            self._worker.cancel()
+        if self._agent_worker and self._agent_worker.isRunning():
+            self._agent_worker.cancel()
+        if self._image_gen_worker and self._image_gen_worker.isRunning():
+            self._image_gen_worker.terminate()
+        self._input_bar.set_enabled(True)
+        self._status_bar.showMessage("생성이 중지되었습니다.", 3000)
+
+    def _on_regenerate(self):
+        """Regenerate the last assistant response."""
+        if self._worker and self._worker.isRunning():
+            return  # Already generating
+
+        # Find the last user message to resend
+        last_user_msg = None
+        last_user_idx = -1
+        for i in range(len(self._chat_history) - 1, -1, -1):
+            if self._chat_history[i]["role"] == "user":
+                last_user_msg = self._chat_history[i]["content"]
+                last_user_idx = i
+                break
+
+        if last_user_msg is None:
+            return
+
+        # Remove the last assistant response from history (if it exists after the user msg)
+        if last_user_idx < len(self._chat_history) - 1:
+            self._chat_history = self._chat_history[:last_user_idx + 1]
+
+        # Remove the last assistant bubble from chat display
+        try:
+            self._chat.remove_last_assistant_bubble()
+        except AttributeError:
+            pass
+
+        # Resend the last user message
+        self._input_bar.set_enabled(False)
+        self._chat.start_streaming()
+
+        system_prompt = get_system_prompt(self._mode)
+        if self._current_project_id:
+            ctx = self._db.get_project_context(self._current_project_id)
+            if ctx:
+                system_prompt += f"\n\n{ctx}"
+
+        recent_history = self._chat_history[-(self._API_CONTEXT_LIMIT + 1):-1]
+        messages = build_chat_messages(recent_history, last_user_msg)
+        self._worker = StreamWorker(self._engine, messages, system_prompt)
+        self._worker.token_received.connect(self._on_token)
+        self._worker.stream_finished.connect(self._on_stream_finished)
+        self._worker.stream_error.connect(self._on_stream_error)
+        self._worker.stream_cancelled.connect(self._on_stream_cancelled)
+        self._worker.start()
+
+    def _on_edit_message(self, original_text: str):
+        """Put the original message text back into the input bar for editing."""
+        self._input_bar._input.setPlainText(original_text)
+        self._input_bar._input.setFocus()
+        self._status_bar.showMessage("메시지를 수정한 후 다시 전송하세요.", 3000)
+
+    def _on_template_selected(self, text: str):
+        """Insert template text into the input bar."""
+        current = self._input_bar._input.toPlainText()
+        if current.strip():
+            self._input_bar._input.setPlainText(current + "\n\n" + text)
+        else:
+            self._input_bar._input.setPlainText(text)
+        self._input_bar._input.setFocus()
+        self._status_bar.showMessage("템플릿이 입력란에 추가되었습니다.", 3000)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dropEvent(self, event):
+        """Handle file drops - attach to input bar."""
+        if not event.mimeData().hasUrls():
+            return
+
+        from core.document_io import SUPPORTED_EXTENSIONS, read_document
+
+        image_exts = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'}
+        image_paths = []
+        doc_paths = []
+
+        for url in event.mimeData().urls():
+            path = url.toLocalFile()
+            if not path or not os.path.isfile(path):
+                continue
+            ext = os.path.splitext(path)[1].lower()
+            if ext in image_exts:
+                image_paths.append(path)
+            elif ext in SUPPORTED_EXTENSIONS:
+                doc_paths.append(path)
+
+        # Process documents
+        if doc_paths:
+            errors = []
+            for path in doc_paths:
+                try:
+                    text = read_document(path)
+                    filename = os.path.basename(path)
+                    self._input_bar._doc_texts.append((filename, text))
+                except Exception:
+                    errors.append(os.path.basename(path))
+            self._input_bar._update_attach_label()
+            if errors:
+                self._status_bar.showMessage(f"첨부 실패: {', '.join(errors)}", 3000)
+
+        # Process images
+        if image_paths:
+            self._input_bar._image_paths.extend(image_paths)
+            names = [os.path.basename(p) for p in self._input_bar._image_paths]
+            self._input_bar._image_label.setText(f"🖼 {', '.join(names)}  [x]")
+            self._input_bar._image_label.show()
+            self._input_bar._image_label.mousePressEvent = lambda e: self._input_bar._clear_images()
+
+        if doc_paths or image_paths:
+            total = len(doc_paths) + len(image_paths)
+            self._status_bar.showMessage(f"{total}개 파일이 첨부되었습니다.", 3000)
+            self._input_bar.set_focus()
+
+        event.acceptProposedAction()
+
     # === Bookmarks ===
 
     def _on_bookmark(self, text: str):
@@ -976,6 +1116,7 @@ class MainWindow(QMainWindow):
         self._ram_label.setText(f"RAM: {ram.used / (1024**3):.1f}/{ram.total / (1024**3):.1f}GB")
 
     def closeEvent(self, event):
+        self._settings.setValue("geometry", self.saveGeometry())
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
             self._worker.wait(3000)
