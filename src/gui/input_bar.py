@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QTextEdit, QPushButton,
     QLabel, QFileDialog, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QKeyEvent
 
 
@@ -75,7 +75,7 @@ class InputBar(QWidget):
         # File attach button
         self._attach_btn = QPushButton("📎")
         self._attach_btn.setObjectName("attach_btn")
-        self._attach_btn.setFixedSize(36, 36)
+        self._attach_btn.setFixedSize(40, 40)
         self._attach_btn.setToolTip("파일 첨부 (PDF, Word, Excel, PPT, CSV, 텍스트)")
         self._attach_btn.clicked.connect(self._on_attach_file)
         input_row.addWidget(self._attach_btn)
@@ -83,7 +83,7 @@ class InputBar(QWidget):
         # Image attach button
         self._image_btn = QPushButton("🖼")
         self._image_btn.setObjectName("attach_btn")
-        self._image_btn.setFixedSize(36, 36)
+        self._image_btn.setFixedSize(40, 40)
         self._image_btn.setToolTip("이미지 첨부 (분석용)")
         self._image_btn.clicked.connect(self._on_attach_image)
         input_row.addWidget(self._image_btn)
@@ -91,7 +91,7 @@ class InputBar(QWidget):
         # Image generation button
         self._image_gen_btn = QPushButton("🎨")
         self._image_gen_btn.setObjectName("attach_btn")
-        self._image_gen_btn.setFixedSize(36, 36)
+        self._image_gen_btn.setFixedSize(40, 40)
         self._image_gen_btn.setToolTip("이미지 생성 (입력 텍스트를 프롬프트로 사용)")
         self._image_gen_btn.setStyleSheet(
             "QPushButton {"
@@ -128,8 +128,14 @@ class InputBar(QWidget):
         if not paths:
             return
         from core.document_io import read_document
+        MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
         errors = []
         for path in paths:
+            # File size check
+            file_size = os.path.getsize(path)
+            if file_size > MAX_FILE_SIZE:
+                errors.append(f"{os.path.basename(path)} (파일이 너무 큽니다: {file_size // (1024*1024)}MB)")
+                continue
             try:
                 text = read_document(path)
                 filename = os.path.basename(path)
@@ -209,7 +215,10 @@ class InputBar(QWidget):
             "Images (*.png *.jpg *.jpeg *.gif *.bmp *.webp);;All Files (*)",
         )
         if paths:
-            self._image_paths.extend(paths)
+            # Filter out duplicates
+            new_paths = [p for p in paths if p not in self._image_paths]
+            if new_paths:
+                self._image_paths.extend(new_paths)
             names = [os.path.basename(p) for p in self._image_paths]
             self._image_label.setText(
                 f"🖼 {', '.join(names)}  [x]"
@@ -229,8 +238,12 @@ class InputBar(QWidget):
 
     def _on_send(self):
         text = self._input.toPlainText().strip()
-        if not text:
+        if not text and not self._doc_texts:
+            self._input.setPlaceholderText("\U0001f4ac 메시지를 입력해주세요!")
+            QTimer.singleShot(2000, lambda: self._input.setPlaceholderText("메시지를 입력하세요..."))
             return
+        if not text:
+            text = "첨부 파일을 분석해주세요."
         # Combine all attached doc texts with file separators
         if len(self._doc_texts) == 1:
             combined = self._doc_texts[0][1]
@@ -250,6 +263,8 @@ class InputBar(QWidget):
         """Emit image generation request with the current input text as prompt."""
         text = self._input.toPlainText().strip()
         if not text:
+            self._input.setPlaceholderText("\U0001f3a8 이미지 생성할 내용을 입력해주세요!")
+            QTimer.singleShot(2000, lambda: self._input.setPlaceholderText("메시지를 입력하세요..."))
             return
         self.image_gen_requested.emit(text)
 
