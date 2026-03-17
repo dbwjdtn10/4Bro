@@ -205,10 +205,9 @@ class MessageBubble(QFrame):
             else:
                 self._content.setPlainText(text)
 
-        # Right-click context menu for assistant messages
-        if role == "assistant":
-            self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            self.customContextMenuRequested.connect(self._show_context_menu)
+        # Right-click context menu for ALL messages (not just assistant)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
 
     def _adjust_height(self):
         """Resize QTextBrowser to fit its document content."""
@@ -217,26 +216,33 @@ class MessageBubble(QFrame):
 
     def _show_context_menu(self, pos):
         menu = QMenu(self)
-        bookmark_action = menu.addAction("북마크 추가")
-        copy_action = menu.addAction("전체 복사")
-        save_action = menu.addAction("Word로 저장")
 
-        label_action = None
-        if self._bookmark_id is not None:
-            menu.addSeparator()
-            label_action = menu.addAction("라벨 편집")
+        if self._role == "assistant":
+            bookmark_action = menu.addAction("북마크 추가")
+            copy_action = menu.addAction("전체 복사")
+            save_action = menu.addAction("Word로 저장")
+
+            label_action = None
+            if self._bookmark_id is not None:
+                menu.addSeparator()
+                label_action = menu.addAction("라벨 편집")
+        else:
+            bookmark_action = None
+            copy_action = menu.addAction("전체 복사")
+            save_action = None
+            label_action = None
 
         action = menu.exec(self.mapToGlobal(pos))
         if action is None:
             return
-        if action == bookmark_action:
+        if bookmark_action and action == bookmark_action:
             self.bookmark_requested.emit(self._raw_text)
         elif action == copy_action:
             from PyQt6.QtWidgets import QApplication
             QApplication.clipboard().setText(self._raw_text)
-        elif action == save_action:
+        elif save_action and action == save_action:
             self._save_as_word()
-        elif label_action is not None and action == label_action:
+        elif label_action and action == label_action:
             self._edit_bookmark_label()
 
     def _edit_bookmark_label(self):
@@ -380,6 +386,51 @@ class ChatWidget(QScrollArea):
         self._layout.insertWidget(self._layout.count() - 1, header)
         self._step_headers.append(header)
         self._scroll_to_bottom()
+
+    def scroll_to_message(self, history_index: int):
+        """Scroll to a message by its index in chat history (excluding welcome msg)."""
+        # Account for welcome message offset: first bubble might be welcome message
+        # The history_index maps to _bubbles but with possible offset
+        bubble_idx = history_index
+        # If first bubble is the welcome message, offset by 1
+        if self._bubbles and self._bubbles[0].get_text().startswith("안녕하세요") or \
+           self._bubbles and self._bubbles[0].get_text().startswith("새 대화를"):
+            bubble_idx += 1
+
+        if 0 <= bubble_idx < len(self._bubbles):
+            bubble = self._bubbles[bubble_idx]
+            self.ensureWidgetVisible(bubble, 50, 50)
+
+    def highlight_message(self, history_index: int, query: str = ""):
+        """Highlight a message by adding a temporary border, and optionally highlight matching text."""
+        # Reset all highlights first
+        self._clear_highlights()
+
+        bubble_idx = history_index
+        if self._bubbles and (self._bubbles[0].get_text().startswith("안녕하세요") or
+                              self._bubbles[0].get_text().startswith("새 대화를")):
+            bubble_idx += 1
+
+        if 0 <= bubble_idx < len(self._bubbles):
+            bubble = self._bubbles[bubble_idx]
+            bubble.setStyleSheet(
+                bubble.styleSheet() +
+                "MessageBubble { border: 2px solid #cba6f7; border-radius: 8px; }"
+            )
+            bubble.setProperty("highlighted", True)
+            self.ensureWidgetVisible(bubble, 50, 50)
+
+    def _clear_highlights(self):
+        """Remove highlight styling from all bubbles."""
+        for bubble in self._bubbles:
+            if bubble.property("highlighted"):
+                bubble.setStyleSheet("")
+                bubble.setProperty("highlighted", False)
+
+    def scroll_to_message_index(self, index: int):
+        """Scroll to a specific bubble index (0-based into _bubbles list)."""
+        if 0 <= index < len(self._bubbles):
+            self.ensureWidgetVisible(self._bubbles[index], 50, 50)
 
     def _scroll_to_bottom(self):
         QTimer.singleShot(10, lambda: self.verticalScrollBar().setValue(
