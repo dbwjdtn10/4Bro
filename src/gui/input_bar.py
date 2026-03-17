@@ -43,6 +43,9 @@ class InputBar(QWidget):
     # Signal emitted when user requests image generation with current prompt
     image_gen_requested = pyqtSignal(str)
 
+    # Signal emitted when user clicks the stop button during generation
+    stop_requested = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._doc_texts: list[tuple[str, str]] = []  # [(filename, text), ...]
@@ -115,6 +118,22 @@ class InputBar(QWidget):
         self._send_btn.setMinimumWidth(60)
         self._send_btn.clicked.connect(self._on_send)
         input_row.addWidget(self._send_btn)
+
+        # Stop button (hidden by default, shown during generation)
+        self._stop_btn = QPushButton("중지")
+        self._stop_btn.setObjectName("cancel_btn")
+        self._stop_btn.setFixedHeight(40)
+        self._stop_btn.setMinimumWidth(60)
+        self._stop_btn.setStyleSheet(
+            "QPushButton {"
+            "  background-color: #f38ba8; color: #1e1e2e; font-weight: bold;"
+            "  border: none; border-radius: 6px;"
+            "}"
+            "QPushButton:hover { background-color: #eba0ac; }"
+        )
+        self._stop_btn.clicked.connect(self.stop_requested.emit)
+        self._stop_btn.hide()
+        input_row.addWidget(self._stop_btn)
 
         self._input.send_requested.connect(self._on_send)
 
@@ -276,8 +295,12 @@ class InputBar(QWidget):
         self._image_gen_btn.setEnabled(enabled)
         if enabled:
             self._send_btn.setText("전송")
+            self._send_btn.show()
+            self._stop_btn.hide()
         else:
             self._send_btn.setText("생성중...")
+            self._send_btn.hide()
+            self._stop_btn.show()
 
     def set_focus(self):
         self._input.setFocus()
