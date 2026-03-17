@@ -419,6 +419,16 @@ class ChatWidget(QScrollArea):
             self._add_regen_button()
         return text
 
+    def remove_last_assistant_bubble(self):
+        """Remove the last assistant message bubble (used for regeneration)."""
+        for i in range(len(self._bubbles) - 1, -1, -1):
+            if self._bubbles[i]._role == "assistant":
+                bubble = self._bubbles.pop(i)
+                self._layout.removeWidget(bubble)
+                bubble.deleteLater()
+                self._remove_regen_button()
+                break
+
     def clear_chat(self):
         """Remove all message bubbles and step headers."""
         self._remove_regen_button()

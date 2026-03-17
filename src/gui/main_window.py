@@ -238,6 +238,7 @@ class MainWindow(QMainWindow):
         # Chat
         self._chat = ChatWidget()
         self._chat.bookmark_requested.connect(self._on_bookmark)
+        self._chat.bookmark_label_changed.connect(self._on_bookmark_label_changed)
         self._chat.regenerate_requested.connect(self._on_regenerate)
         self._chat.edit_message_requested.connect(self._on_edit_message)
         right_layout.addWidget(self._chat, 1)
@@ -869,6 +870,11 @@ class MainWindow(QMainWindow):
             project_id=self._current_project_id,
         )
         self._status_bar.showMessage("북마크에 추가되었습니다.", 3000)
+
+    def _on_bookmark_label_changed(self, bookmark_id: int, label: str):
+        """Update bookmark label in database."""
+        self._db.update_bookmark_label(bookmark_id, label)
+        self._status_bar.showMessage("라벨이 저장되었습니다.", 3000)
 
     # === Export ===
 
