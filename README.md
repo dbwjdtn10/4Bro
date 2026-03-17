@@ -1,199 +1,107 @@
 # 4Bro - AI 광고 어시스턴트
 
-광고 마케터를 위한 데스크톱 AI 어시스턴트입니다.
-Gemini API를 사용하며, 광고 카피 작성부터 캠페인 기획까지 한 곳에서 처리할 수 있습니다.
-
-> Architecture & Flow 문서: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-
----
-
-## 다운로드 (exe - 설치 불필요)
-
-**Python 없이 바로 사용하려면 아래 링크에서 다운로드하세요.**
-
-1. [Releases](https://github.com/dbwjdtn10/4Bro/releases) 페이지에서 `4Bro-v2.0-windows.zip` 다운로드
-2. 원하는 폴더에 압축 해제
-3. `4Bro.exe` 실행
-4. 처음 실행 시 설정 창에서 Gemini API 키 입력 (아래 [API 키 설정](#api-키-설정) 참고)
-
-> Windows 10 이상, 인터넷 연결 필요
-
----
-
-## 소스코드에서 실행 (개발자용)
-
-### 1. Python 설치 확인
-
-Python 3.10 이상이 필요합니다.
-
-```
-python --version
-```
-
-### 2. 패키지 설치
-
-```
-pip install -r requirements.txt
-```
-
-또는 `setup.bat`을 더블클릭하면 자동으로 설치됩니다.
-
-### 3. 실행
-
-```
-python src/main.py
-```
-
-처음 실행하면 설정 창이 뜹니다. API 키를 입력하고 저장하면 끝입니다.
-
-### exe 빌드
-
-```
-build.bat
-```
-
-빌드 후 `dist/4Bro/4Bro.exe`가 생성됩니다.
-
----
-
-## API 키 설정
-
-4Bro는 3단계 AI 엔진을 순서대로 사용합니다.
-Gemini 한도가 초과되면 자동으로 다음 엔진으로 전환됩니다.
-
-```
-1순위: Gemini API  (필수)
-2순위: Groq API    (선택 - Gemini 한도 초과 시 자동 전환)
-3순위: Ollama      (선택 - 오프라인 폴백)
-```
-
-### Gemini API (필수 - 무료)
-
-Google에서 제공하는 AI API입니다. 무료 플랜으로 충분히 사용 가능합니다.
-
-1. https://aistudio.google.com 접속
-2. Google 계정으로 로그인
-3. 좌측 메뉴에서 **Get API Key** 클릭
-4. **Create API Key** → 키 복사
-5. 4Bro 실행 → 상단 **설정** 버튼 → Gemini API 키 붙여넣기 → 저장
-
-> 무료 한도: 분당 15회, 일 1,500회 요청 (일반 업무에 충분)
-
-### Groq API (선택 - 무료)
-
-Gemini 한도가 다 찼을 때 자동으로 전환되는 백업 엔진입니다.
-설정하지 않아도 되지만, 설정해두면 Gemini가 막혔을 때 끊김 없이 사용할 수 있습니다.
-
-1. https://console.groq.com 접속
-2. 계정 생성 (Google/GitHub 로그인 가능)
-3. 좌측 메뉴 **API Keys** 클릭
-4. **Create API Key** → 키 복사
-5. 4Bro 설정 → Groq API 키 붙여넣기 → 저장
-
-> 무료 한도: 분당 30회, 일 14,400회 요청
-
-### Ollama (선택 - 오프라인)
-
-인터넷 없이 로컬 AI를 사용하는 옵션입니다.
-API가 모두 안 될 때 마지막 수단으로 자동 전환됩니다.
-별도 설정 없이 Ollama가 설치되어 있으면 자동 감지됩니다.
-
-1. https://ollama.com 에서 다운로드 및 설치
-2. 터미널에서 모델 다운로드: `ollama pull qwen2.5:14b`
-3. 4Bro가 자동으로 감지합니다 (설정 화면에서 확인 가능)
-
-> 별도 API 키 불필요. PC 사양에 따라 응답 속도가 달라질 수 있습니다.
-
----
+> 광고 마케터를 위한 데스크톱 AI 어시스턴트 (Gemini 2.5 Flash 기반)
 
 ## 주요 기능
 
-### 채팅
+### 💬 AI 채팅
+- Gemini 2.5 Flash 기반 실시간 스트리밍 응답
+- 마크다운 렌더링 (코드 블록, 볼드, 헤더, 리스트)
+- 코드 블록 복사 버튼
+- 응답 재생성 (🔄) / 생성 중지
+- 메시지 수정 후 재전송
+- 대화 내 검색 (Ctrl+F)
 
-메시지를 입력하면 AI가 응답합니다. `Enter`로 전송, `Shift+Enter`로 줄바꿈입니다.
+### 📎 파일 처리
+- PDF, Word, Excel, PowerPoint, CSV, 텍스트 파일 첨부 및 분석
+- 이미지 첨부 및 분석 (Gemini Vision)
+- 스캔 PDF 자동 이미지 변환
+- 드래그 앤 드롭 파일 첨부
+- 50만자 이상 대용량 문서 지원
 
-- **광고 전문가 모드**: 카피 작성, 매체별 변형, 캠페인 전략 등 광고 업무 특화
-- **범용 모드**: 이메일, 보고서, 번역 등 일반 업무
+### 🤖 에이전트 워크플로우
+- 매체별 광고 변형 (GFA, GDN, 유튜브, 인벤, SNS)
+- 캠페인 패키지 자동 생성 (5단계)
+- 경쟁사 분석 (웹 검색 연동)
+- 대량 카피 생성 (50개 헤드라인)
+- 보고서 자동 작성
 
-상단 **모드** 드롭다운에서 전환할 수 있습니다.
+### 📁 프로젝트 관리
+- 프로젝트별 컨텍스트 자동 주입 (장르, 타겟, 톤앤매너, KPI 등)
+- 대화 히스토리 관리 (이름 변경, 검색, 페이지네이션)
+- 북마크 + 라벨 태그
+- 프롬프트 템플릿 저장/재사용
 
-### 파일 첨부
+### 📤 내보내기
+- Word (.docx) / PDF / 텍스트 파일 저장
+- 클립보드 복사 (마크다운)
+- 에이전트 결과 Word 자동 저장
 
-- 📎 버튼: PDF, Word, txt 파일을 첨부하면 AI가 내용을 읽고 참고합니다
-- 🖼 버튼: 이미지를 첨부하면 AI가 분석합니다 (광고 소재 분석 등)
+### ⚙️ 기타
+- Catppuccin Mocha 다크 테마
+- 자동 업데이트 (GitHub Release 연동)
+- 창 위치/크기 자동 기억
+- 키보드 단축키 (Ctrl+N, Ctrl+F, Ctrl+E)
+- 8개 매체 광고 규격 내장
 
-### 프로젝트
+## 기술 스택
 
-사이드바에서 프로젝트를 만들면 게임명, 타겟, 톤앤매너, 경쟁사 등을 저장해둘 수 있습니다.
-프로젝트를 선택한 상태에서 대화하면 AI가 해당 정보를 자동으로 참고합니다.
+| 구분 | 기술 |
+|------|------|
+| GUI | PyQt6 |
+| AI | Google Gemini 2.5 Flash (google-genai SDK) |
+| 데이터베이스 | SQLite (WAL mode, 인덱싱) |
+| 웹 검색 | DuckDuckGo Search |
+| 문서 처리 | PyPDF2, pdfplumber, python-docx, openpyxl |
+| 빌드 | PyInstaller |
+| 테마 | Catppuccin Mocha |
 
-### 에이전트 모드
-
-상단 **에이전트** 버튼을 누르면 자동 워크플로우를 실행할 수 있습니다.
-입력란에 내용을 먼저 적고 워크플로우를 선택하세요.
-
-| 워크플로우 | 설명 |
-|---|---|
-| 매체별 일괄 변형 | 하나의 카피를 GFA/GDN/SNS 등 여러 매체용으로 한번에 변형 |
-| 캠페인 패키지 | 타겟 분석 → 전략 → 카피 → SNS → 기획서 자동 생성 |
-| 경쟁사 리서치 | 웹 검색 → 정보 수집 → 비교 분석 → 차별화 전략 |
-| 카피 대량 생성 | 방향 분석 → 헤드라인 50개 생성 → 분류 정리 |
-| 보고서 자동화 | 데이터 분석 → 성과 요약 → 인사이트 → 제안 |
-
-완료되면 Word 파일로 자동 저장됩니다. (`내 문서/4Bro/` 폴더)
-
-### 북마크 & 내보내기
-
-- AI 응답을 **우클릭** → 북마크 추가 / 전체 복사 / Word로 저장
-- 상단 **내보내기** 버튼 → 대화 전체를 Word 또는 txt로 저장, 북마크 모아보기
-
----
-
-## 매체별 광고 규격
-
-AI가 자동으로 지켜주는 규격입니다.
-
-| 매체 | 헤드라인 | 설명문 |
-|---|---|---|
-| 네이버 GFA | 25자 | 45자 |
-| Google GDN | 30자 | 90자 |
-| 유튜브 | 제한 없음 | 제한 없음 |
-| 인벤 배너 | 20자 | 30자 |
-| 인스타그램 | - | 2,200자 |
-| 페이스북 | - | 제한 없음 |
-| 카카오채널 | - | 제한 없음 |
-| 네이버 블로그 | - | 제한 없음 |
-
----
-
-## 데이터 저장 위치
-
-모든 데이터는 로컬에 저장됩니다. 외부 서버로 전송되지 않습니다.
+## 아키텍처
 
 ```
-내 문서/4Bro/
-├── config.json    ← API 키 설정
-├── 4bro.db        ← 대화 기록, 프로젝트, 북마크
-└── [프로젝트명]/  ← 에이전트 결과 Word 파일
+src/
+├── main.py              # Entry point
+├── app.py               # Bootstrap (splash, engine/db init)
+├── core/
+│   ├── api_client.py    # Gemini API 클라이언트
+│   ├── engine.py        # AI 엔진 (스트리밍, 이미지 생성)
+│   ├── worker.py        # QThread 스트리밍 워커
+│   ├── agent.py         # 5개 에이전트 워크플로우
+│   ├── database.py      # SQLite CRUD + 인덱싱
+│   ├── prompts.py       # 시스템 프롬프트 + 텍스트 처리
+│   ├── document_io.py   # PDF/Word/Excel 읽기, Word/PDF 내보내기
+│   ├── web_search.py    # DuckDuckGo 검색 + TTL 캐싱
+│   ├── media_specs.py   # 8개 매체 광고 규격
+│   ├── logger.py        # 파일 로깅 시스템
+│   ├── updater.py       # GitHub Release 자동 업데이트
+│   └── version.py       # 버전 관리
+└── gui/
+    ├── main_window.py   # 메인 윈도우 (채팅, 에이전트, 내보내기)
+    ├── chat_widget.py   # 메시지 버블 + 마크다운 렌더링
+    ├── input_bar.py     # 입력바 (파일/이미지 첨부, 중지 버튼)
+    ├── sidebar.py       # 프로젝트/대화/템플릿 관리
+    ├── settings_dialog.py  # API 키 설정 + 테스트
+    ├── project_dialog.py   # 프로젝트 CRUD
+    ├── styles.py        # Catppuccin Mocha QSS
+    └── update_dialog.py # 자동 업데이트 UI
 ```
 
----
+## 설치 및 실행
 
-## 문제 해결
+### exe 다운로드 (권장)
+[최신 릴리즈](https://github.com/dbwjdtn10/4Bro/releases/latest)에서 `4Bro-vX.X.X-win64.zip`을 다운로드하고 압축 해제 후 `4Bro.exe` 실행
 
-**API 키 오류가 나요**
-→ 설정에서 Gemini API 키가 올바르게 입력되었는지 확인하세요.
-→ https://aistudio.google.com 에서 키를 다시 발급받을 수 있습니다.
+### 소스에서 실행
+```bash
+git clone https://github.com/dbwjdtn10/4Bro.git
+cd 4Bro
+pip install -r requirements.txt
+python src/main.py
+```
 
-**Gemini 한도가 다 찼다고 나와요**
-→ Groq API 키를 추가로 설정하면 자동 전환됩니다. (위 [Groq API](#groq-api-선택---무료) 참고)
-→ 설정하지 않았다면 잠시 후 다시 시도하세요. (무료 플랜 분당 15회 제한)
+## API 키 설정
+1. [Google AI Studio](https://aistudio.google.com)에서 무료 API 키 발급
+2. 앱 실행 → 상단 [설정] → Gemini API 키 입력 → [API 키 테스트]로 확인
 
-**이미지 분석이 안 돼요**
-→ 이미지 분석은 Gemini API에서만 지원됩니다. Gemini 키가 설정되어 있어야 합니다.
-
-**에이전트가 중간에 멈췄어요**
-→ 앱을 닫고 다시 실행하세요. 이전 대화는 자동 저장되어 있습니다.
-
-**exe 실행 시 Windows가 차단해요**
-→ "추가 정보" 클릭 → "실행" 클릭 (서명되지 않은 exe에 대한 Windows SmartScreen 경고)
+## 라이선스
+MIT License
