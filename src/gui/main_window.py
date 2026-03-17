@@ -260,20 +260,24 @@ class MainWindow(QMainWindow):
         self._status_bar.addPermanentWidget(self._usage_label)
         self._status_bar.addPermanentWidget(self._ram_label)
 
-        self._chat.add_message(
-            "assistant",
+        welcome = (
             "안녕하세요! 4Bro입니다.\n\n"
             "광고 카피, 캠페인 기획, 매체별 변형 등 무엇이든 말씀해 주세요.\n\n"
-            "상단 [에이전트] 버튼으로 자동 워크플로우도 실행할 수 있습니다.\n"
-            "AI 응답을 우클릭하면 북마크/복사/Word 저장이 가능합니다."
+            "**주요 기능:**\n"
+            "- 상단 [에이전트] 버튼 → 자동 워크플로우 실행\n"
+            "- AI 응답 우클릭 → 북마크/복사/Word 저장\n"
+            "- Ctrl+F → 대화 내 검색 | Ctrl+N → 새 대화\n"
         )
+        if not self._engine.status.gemini_available:
+            welcome += "\n⚠️ Gemini API 키가 설정되지 않았습니다. 상단 [설정]에서 API 키를 먼저 입력해주세요."
+        self._chat.add_message("assistant", welcome)
         self._update_engine_status()
 
     def _init_shortcuts(self):
         """Set up keyboard shortcuts."""
-        # Ctrl+F: toggle search bar
-        shortcut_search = QShortcut(QKeySequence("Ctrl+F"), self)
-        shortcut_search.activated.connect(self._toggle_search)
+        QShortcut(QKeySequence("Ctrl+F"), self).activated.connect(self._toggle_search)
+        QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self._on_new_chat)
+        QShortcut(QKeySequence("Ctrl+E"), self).activated.connect(self._on_export)
 
         # Escape: close search bar (handled via keyPressEvent for broader capture)
 
@@ -314,10 +318,6 @@ class MainWindow(QMainWindow):
         if image_paths:
             names = [os.path.basename(p) for p in image_paths]
             display_text = f"[이미지: {', '.join(names)}]\n\n{text}"
-
-        # Warn user if input is very long
-        if len(text) > 60000 or len(doc_text) > 80000:
-            display_text += "\n\n⚠️ 텍스트가 매우 길어 일부만 AI에게 전달됩니다."
 
         self._chat.add_message("user", display_text)
         self._chat_history.append({"role": "user", "content": text})
@@ -370,11 +370,27 @@ class MainWindow(QMainWindow):
 
     def _on_stream_error(self, error: str):
         self._chat.finish_streaming()
-        self._chat.add_message("assistant", f"오류가 발생했습니다:\n{error}\n\n설정에서 API 키를 확인해 주세요.")
+        # Parse error for user-friendly message
+        err_lower = error.lower()
+        if "invalid" in err_lower and "key" in err_lower:
+            msg = "API 키가 올바르지 않습니다. [설정]에서 확인해주세요."
+        elif "quota" in err_lower or "rate" in err_lower or "429" in error:
+            msg = "요청이 너무 많습니다. 잠시 후 다시 시도해주세요."
+        elif "timeout" in err_lower or "timed out" in err_lower:
+            msg = "응답 시간이 초과되었습니다. 인터넷 연결을 확인하고 다시 시도해주세요."
+        elif "connection" in err_lower or "network" in err_lower or "urlopen" in err_lower:
+            msg = "인터넷 연결에 문제가 있습니다. 네트워크를 확인해주세요."
+        elif "permission" in err_lower or "403" in error:
+            msg = "API 접근이 거부되었습니다. API 키 권한을 확인해주세요."
+        elif "not found" in err_lower or "404" in error:
+            msg = "API 모델을 찾을 수 없습니다. 잠시 후 다시 시도해주세요."
+        elif "safety" in err_lower or "block" in err_lower:
+            msg = "안전 필터에 의해 응답이 차단되었습니다. 다른 방식으로 질문해보세요."
+        else:
+            msg = f"오류가 발생했습니다:\n{error}"
+        self._chat.add_message("assistant", msg)
         self._input_bar.set_enabled(True)
         self._input_bar.set_focus()
-
-        # Task 5: Process next queued message even after error
         self._process_message_queue()
 
     # === Message Queue (Task 5) ===
@@ -499,11 +515,16 @@ class MainWindow(QMainWindow):
         self._process_message_queue()
 
     def _on_agent_error(self, error: str):
-        self._chat.add_message("assistant", f"에이전트 오류:\n{error}")
+        err_lower = error.lower()
+        if "timeout" in err_lower or "connection" in err_lower:
+            msg = "에이전트 실행 중 네트워크 오류가 발생했습니다. 인터넷 연결을 확인해주세요."
+        elif "key" in err_lower or "auth" in err_lower:
+            msg = "에이전트 실행 중 API 인증 오류가 발생했습니다. 설정에서 API 키를 확인해주세요."
+        else:
+            msg = f"에이전트 실행 중 오류가 발생했습니다:\n{error}\n\n다시 시도하거나, 입력을 수정해보세요."
+        self._chat.add_message("assistant", msg)
         self._input_bar.set_enabled(True)
         self._agent_worker = None
-
-        # Task 5: Process next queued message
         self._process_message_queue()
 
     def _auto_save_agent(self, text: str) -> str:
@@ -518,7 +539,8 @@ class MainWindow(QMainWindow):
             filepath = os.path.join(docs_dir, f"agent_{date_str}.docx")
             save_to_word(text, filepath)
             return filepath
-        except Exception:
+        except Exception as e:
+            self._status_bar.showMessage(f"Word 자동 저장 실패: {e}", 5000)
             return ""
 
     # === Image Generation (Task 4) ===
@@ -790,10 +812,13 @@ class MainWindow(QMainWindow):
     def _on_conv_deleted(self, conv_id: int):
         if conv_id == self._current_conv_id:
             self._on_new_chat()
+            self._status_bar.showMessage("대화가 삭제되었습니다.", 3000)
 
     def _on_conv_selected(self, conv_id: int):
         if conv_id == self._current_conv_id:
             return
+        if self._search_bar.isVisible():
+            self._close_search()
         self._current_conv_id = conv_id
         self._chat_history = []
         self._chat.clear_chat()
@@ -858,6 +883,9 @@ class MainWindow(QMainWindow):
         for msg in older_messages:
             new_history.append({"role": msg["role"], "content": msg["content"]})
 
+        # Save the number of new messages prepended
+        new_count = len(older_messages)
+
         # Prepend older messages to chat history
         self._chat_history = new_history + self._chat_history
 
@@ -866,7 +894,7 @@ class MainWindow(QMainWindow):
         for msg in self._chat_history:
             self._chat.add_message(msg["role"], msg["content"])
 
-        self._msg_offset += len(older_messages)
+        self._msg_offset += new_count
 
         # Check if there are still more messages
         try:
@@ -878,8 +906,14 @@ class MainWindow(QMainWindow):
         if not self._has_more_msgs:
             self._load_prev_btn.hide()
 
+        # Scroll to where user was (approximately) after layout settles
+        try:
+            QTimer.singleShot(50, lambda: self._chat.scroll_to_message_index(new_count))
+        except (AttributeError, TypeError):
+            pass
+
         self._status_bar.showMessage(
-            f"이전 메시지 {len(older_messages)}개를 불러왔습니다.", 3000
+            f"이전 메시지 {new_count}개를 불러왔습니다.", 3000
         )
 
     # === Projects ===
