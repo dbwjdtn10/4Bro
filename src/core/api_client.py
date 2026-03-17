@@ -56,7 +56,7 @@ class GeminiClient:
 
         config = types.GenerateContentConfig(
             temperature=0.8,
-            max_output_tokens=8192,
+            max_output_tokens=65536,
         )
         if system_prompt:
             config.system_instruction = system_prompt

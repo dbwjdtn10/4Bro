@@ -58,10 +58,10 @@ def get_system_prompt(mode: str = "ad_expert") -> str:
 
 
 # Approximate char limits (1 token ≈ 3~4 chars for Korean)
-# Gemini 2.5 Flash has 1M tokens, keeping conservative limits
-MAX_USER_INPUT_CHARS = 60000       # ~15k tokens — after cleaning, allows longer input
-MAX_DOC_CHARS = 80000              # ~20k tokens — attached document limit
-MAX_HISTORY_CHARS = 80000          # ~20k tokens — total history limit
+# Gemini 2.5 Flash has 1M token context (~3M Korean chars) — be generous
+MAX_USER_INPUT_CHARS = 500_000     # ~125k tokens — large inputs welcome
+MAX_DOC_CHARS = 500_000            # ~125k tokens — large documents welcome
+MAX_HISTORY_CHARS = 200_000        # ~50k tokens — keep generous history
 TRUNCATION_NOTICE = "\n\n⚠️ [텍스트가 너무 길어 일부만 포함되었습니다]"
 
 
