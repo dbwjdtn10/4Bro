@@ -8,9 +8,12 @@ from html import escape
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QScrollArea,
     QSizePolicy, QFrame, QMenu, QInputDialog,
-    QTextBrowser,
+    QTextBrowser, QPushButton,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+
+# Module-level storage for code block raw texts (used by copy-code:// links)
+_code_block_texts: list[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -24,16 +27,25 @@ def markdown_to_html(text: str) -> str:
     contents are protected from subsequent transformations.
     """
 
+    _code_block_texts.clear()
+
     # --- Step 1: Extract fenced code blocks and protect them ---------------
     code_blocks: list[str] = []
 
     def _replace_code_block(m: re.Match) -> str:
         lang = m.group(1) or ""
-        code = escape(m.group(2))
+        raw_code = m.group(2)
+        code = escape(raw_code)
+        idx = len(_code_block_texts)
+        _code_block_texts.append(raw_code)
         block_html = (
+            f'<div style="position:relative; margin:4px 0;">'
+            f'<a href="copy-code://{idx}" style="color:#89b4fa; font-size:11px; '
+            f'text-decoration:none; float:right; padding:2px 6px;">[복사]</a>'
             f'<pre style="background:#313244; padding:8px; border-radius:6px; '
             f'font-family:Consolas,monospace; font-size:13px; color:#cdd6f4; '
-            f'overflow-x:auto; white-space:pre-wrap;">{code}</pre>'
+            f'overflow-x:auto; white-space:pre-wrap; margin:0;">{code}</pre>'
+            f'</div>'
         )
         placeholder = f"\x00CODEBLOCK{len(code_blocks)}\x00"
         code_blocks.append(block_html)
@@ -150,6 +162,7 @@ class MessageBubble(QFrame):
 
     bookmark_requested = pyqtSignal(str)  # raw text to bookmark
     bookmark_label_edit_requested = pyqtSignal(int, str)  # (bookmark_id, new_label)
+    edit_requested = pyqtSignal(str)  # original text (for user message edit/resend)
 
     def __init__(self, role: str, text: str = "", parent=None):
         super().__init__(parent)
@@ -182,7 +195,8 @@ class MessageBubble(QFrame):
 
         # Content display – QTextBrowser for rich HTML + link handling
         self._content = QTextBrowser()
-        self._content.setOpenExternalLinks(True)
+        self._content.setOpenLinks(False)  # Handle links manually
+        self._content.anchorClicked.connect(self._on_link_clicked)
         self._content.setReadOnly(True)
         self._content.setFrameShape(QFrame.Shape.NoFrame)
         self._content.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -221,14 +235,16 @@ class MessageBubble(QFrame):
             bookmark_action = menu.addAction("북마크 추가")
             copy_action = menu.addAction("전체 복사")
             save_action = menu.addAction("Word로 저장")
+            edit_action = None
 
             label_action = None
             if self._bookmark_id is not None:
                 menu.addSeparator()
                 label_action = menu.addAction("라벨 편집")
-        else:
+        else:  # user message
             bookmark_action = None
             copy_action = menu.addAction("전체 복사")
+            edit_action = menu.addAction("수정 후 재전송")
             save_action = None
             label_action = None
 
@@ -244,6 +260,8 @@ class MessageBubble(QFrame):
             self._save_as_word()
         elif label_action and action == label_action:
             self._edit_bookmark_label()
+        elif edit_action and action == edit_action:
+            self.edit_requested.emit(self._raw_text)
 
     def _edit_bookmark_label(self):
         """Show an input dialog to edit the bookmark label."""
@@ -265,6 +283,19 @@ class MessageBubble(QFrame):
             self._label_widget.setVisible(True)
         else:
             self._label_widget.setVisible(False)
+
+    def _on_link_clicked(self, url):
+        """Handle link clicks: copy-code:// for code blocks, others open in browser."""
+        url_str = url.toString()
+        if url_str.startswith("copy-code://"):
+            idx = int(url_str.split("://")[1])
+            if 0 <= idx < len(_code_block_texts):
+                from PyQt6.QtWidgets import QApplication
+                QApplication.clipboard().setText(_code_block_texts[idx])
+        else:
+            # Open external links in browser
+            from PyQt6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(url)
 
     def _save_as_word(self):
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
@@ -314,6 +345,8 @@ class ChatWidget(QScrollArea):
 
     bookmark_requested = pyqtSignal(str)  # bubble text to bookmark
     bookmark_label_changed = pyqtSignal(int, str)  # (bookmark_id, new_label)
+    regenerate_requested = pyqtSignal()  # request to regenerate last response
+    edit_message_requested = pyqtSignal(str)  # original text to put back in input
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -333,17 +366,23 @@ class ChatWidget(QScrollArea):
         self._bubbles: list[MessageBubble] = []
         self._step_headers: list[QLabel] = []
         self._streaming_bubble: MessageBubble | None = None
+        self._regen_btn: QPushButton | None = None
 
     def add_message(self, role: str, text: str) -> MessageBubble:
         bubble = MessageBubble(role, text)
         bubble.bookmark_requested.connect(self.bookmark_requested.emit)
         bubble.bookmark_label_edit_requested.connect(self.bookmark_label_changed.emit)
+        if role == "user":
+            bubble.edit_requested.connect(self.edit_message_requested.emit)
         self._layout.insertWidget(self._layout.count() - 1, bubble)
         self._bubbles.append(bubble)
+        if role == "assistant":
+            self._add_regen_button()
         self._scroll_to_bottom()
         return bubble
 
     def start_streaming(self) -> MessageBubble:
+        self._remove_regen_button()
         bubble = MessageBubble("assistant", "")
         bubble.bookmark_requested.connect(self.bookmark_requested.emit)
         bubble.bookmark_label_edit_requested.connect(self.bookmark_label_changed.emit)
@@ -363,9 +402,11 @@ class ChatWidget(QScrollArea):
             self._streaming_bubble.finish_render()
             text = self._streaming_bubble.get_text()
             self._streaming_bubble = None
+            self._add_regen_button()
         return text
 
     def clear_chat(self):
+        self._remove_regen_button()
         for bubble in self._bubbles:
             self._layout.removeWidget(bubble)
             bubble.deleteLater()
@@ -431,6 +472,26 @@ class ChatWidget(QScrollArea):
         """Scroll to a specific bubble index (0-based into _bubbles list)."""
         if 0 <= index < len(self._bubbles):
             self.ensureWidgetVisible(self._bubbles[index], 50, 50)
+
+    def _add_regen_button(self):
+        """Add a regenerate button below the last assistant message."""
+        self._remove_regen_button()  # remove previous one first
+        self._regen_btn = QPushButton("\U0001f504 재생성")
+        self._regen_btn.setFixedHeight(26)
+        self._regen_btn.setStyleSheet(
+            "QPushButton { background: transparent; color: #89b4fa; border: 1px solid #45475a;"
+            " border-radius: 4px; padding: 2px 10px; font-size: 11px; }"
+            "QPushButton:hover { background-color: #313244; border-color: #89b4fa; }"
+        )
+        self._regen_btn.clicked.connect(self.regenerate_requested.emit)
+        self._layout.insertWidget(self._layout.count() - 1, self._regen_btn)
+
+    def _remove_regen_button(self):
+        """Remove the regenerate button if it exists."""
+        if hasattr(self, '_regen_btn') and self._regen_btn:
+            self._layout.removeWidget(self._regen_btn)
+            self._regen_btn.deleteLater()
+            self._regen_btn = None
 
     def _scroll_to_bottom(self):
         QTimer.singleShot(10, lambda: self.verticalScrollBar().setValue(
