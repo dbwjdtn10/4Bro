@@ -27,6 +27,7 @@ class Database:
         self._create_tables()
 
     def _create_tables(self):
+        """Create all required tables and indexes if they don't exist."""
         with self._lock:
             self._conn.executescript("""
             CREATE TABLE IF NOT EXISTS projects (
@@ -89,11 +90,13 @@ class Database:
             self._conn.commit()
 
     def close(self):
+        """Close the database connection."""
         self._conn.close()
 
     # === Projects ===
 
     def create_project(self, name: str, **kwargs) -> int:
+        """Create a new project and return its ID."""
         with self._lock:
             cur = self._conn.execute(
                 """INSERT INTO projects (name, genre, target, tone, kpi, competitors, usp, notes)
@@ -113,6 +116,7 @@ class Database:
             return cur.lastrowid or 0
 
     def update_project(self, project_id: int, **kwargs):
+        """Update project fields by ID."""
         fields = []
         values = []
         for key in ("name", "genre", "target", "tone", "kpi", "competitors", "usp", "notes"):
@@ -131,11 +135,13 @@ class Database:
             self._conn.commit()
 
     def delete_project(self, project_id: int):
+        """Delete a project by ID."""
         with self._lock:
             self._conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
             self._conn.commit()
 
     def get_project(self, project_id: int) -> Optional[dict]:
+        """Return a project dict by ID, or None if not found."""
         with self._lock:
             row = self._conn.execute(
                 "SELECT * FROM projects WHERE id = ?", (project_id,)
@@ -143,6 +149,7 @@ class Database:
             return dict(row) if row else None
 
     def list_projects(self) -> list[dict]:
+        """Return all projects ordered by most recently updated."""
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM projects ORDER BY updated_at DESC"
@@ -182,6 +189,7 @@ class Database:
         project_id: int | None = None,
         mode: str = "ad_expert",
     ) -> int:
+        """Create a new conversation and return its ID."""
         with self._lock:
             cur = self._conn.execute(
                 "INSERT INTO conversations (title, project_id, mode) VALUES (?, ?, ?)",
@@ -191,6 +199,7 @@ class Database:
             return cur.lastrowid or 0
 
     def update_conversation(self, conv_id: int, **kwargs):
+        """Update conversation fields by ID."""
         fields = []
         values = []
         for key in ("title", "project_id", "mode"):
@@ -209,6 +218,7 @@ class Database:
             self._conn.commit()
 
     def delete_conversation(self, conv_id: int):
+        """Delete a conversation and its messages (CASCADE)."""
         with self._lock:
             self._conn.execute("DELETE FROM conversations WHERE id = ?", (conv_id,))
             self._conn.commit()
@@ -216,6 +226,7 @@ class Database:
     def list_conversations(
         self, project_id: int | None = None, limit: int | None = None, offset: int = 0
     ) -> list[dict]:
+        """List conversations, optionally filtered by project, with pagination."""
         with self._lock:
             if project_id is not None:
                 sql = "SELECT * FROM conversations WHERE project_id = ? ORDER BY updated_at DESC"
@@ -246,6 +257,7 @@ class Database:
             return row[0] if row else 0
 
     def get_conversation(self, conv_id: int) -> Optional[dict]:
+        """Return a conversation dict by ID, or None if not found."""
         with self._lock:
             row = self._conn.execute(
                 "SELECT * FROM conversations WHERE id = ?", (conv_id,)
@@ -255,6 +267,7 @@ class Database:
     # === Messages ===
 
     def add_message(self, conv_id: int, role: str, content: str) -> int:
+        """Add a message to a conversation and update its timestamp."""
         with self._lock:
             cur = self._conn.execute(
                 "INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)",
@@ -271,6 +284,7 @@ class Database:
     def get_messages(
         self, conv_id: int, limit: int | None = None, offset: int = 0
     ) -> list[dict]:
+        """Return messages for a conversation in chronological order."""
         with self._lock:
             if limit is not None:
                 # Fetch the most recent N messages (with offset) by selecting
@@ -306,6 +320,7 @@ class Database:
         conversation_id: int | None = None,
         project_id: int | None = None,
     ) -> int:
+        """Add a bookmark and return its ID."""
         with self._lock:
             cur = self._conn.execute(
                 "INSERT INTO bookmarks (content, label, conversation_id, project_id) VALUES (?, ?, ?, ?)",
@@ -324,6 +339,7 @@ class Database:
             self._conn.commit()
 
     def list_bookmarks(self, project_id: int | None = None) -> list[dict]:
+        """List bookmarks, optionally filtered by project."""
         with self._lock:
             if project_id is not None:
                 rows = self._conn.execute(
@@ -337,6 +353,7 @@ class Database:
             return [dict(r) for r in rows]
 
     def delete_bookmark(self, bookmark_id: int):
+        """Delete a bookmark by ID."""
         with self._lock:
             self._conn.execute("DELETE FROM bookmarks WHERE id = ?", (bookmark_id,))
             self._conn.commit()
@@ -355,6 +372,7 @@ class Database:
     # === Templates ===
 
     def add_template(self, name: str, content: str) -> int:
+        """Add a prompt template and return its ID."""
         with self._lock:
             cur = self._conn.execute(
                 "INSERT INTO templates (name, content) VALUES (?, ?)",
@@ -364,6 +382,7 @@ class Database:
             return cur.lastrowid or 0
 
     def list_templates(self) -> list[dict]:
+        """Return all templates ordered by name."""
         with self._lock:
             rows = self._conn.execute(
                 "SELECT id, name, content, created_at FROM templates ORDER BY name"
@@ -371,6 +390,7 @@ class Database:
             return [dict(r) for r in rows]
 
     def get_template(self, template_id: int) -> dict | None:
+        """Return a template dict by ID, or None if not found."""
         with self._lock:
             row = self._conn.execute(
                 "SELECT id, name, content FROM templates WHERE id = ?",
@@ -379,6 +399,7 @@ class Database:
             return dict(row) if row else None
 
     def update_template(self, template_id: int, name: str, content: str):
+        """Update a template's name and content."""
         with self._lock:
             self._conn.execute(
                 "UPDATE templates SET name = ?, content = ? WHERE id = ?",
@@ -387,6 +408,7 @@ class Database:
             self._conn.commit()
 
     def delete_template(self, template_id: int):
+        """Delete a template by ID."""
         with self._lock:
             self._conn.execute("DELETE FROM templates WHERE id = ?", (template_id,))
             self._conn.commit()

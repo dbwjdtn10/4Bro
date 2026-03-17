@@ -1,4 +1,10 @@
-"""System prompts for 4Bro v2.0 chat modes."""
+"""System prompts and message-building utilities for 4Bro v3.2.
+
+Provides chat mode system prompts (ad expert / general), text cleaning,
+token-budget management (truncation + history trimming), and message assembly.
+"""
+
+import re
 
 # ===========================================================================
 # Chat mode system prompts
@@ -76,8 +82,6 @@ def _clean_text(text: str) -> str:
     """
     if len(text) < _CLEAN_THRESHOLD:
         return text
-
-    import re
 
     # Strip HTML tags (from web copy-paste)
     text = re.sub(r'<[^>]+>', ' ', text)

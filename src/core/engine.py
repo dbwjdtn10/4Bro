@@ -1,4 +1,8 @@
-"""AI Engine manager: Gemini-only."""
+"""AI Engine manager for 4Bro.
+
+Manages the Gemini API client lifecycle: config persistence,
+key setup, streaming chat delegation, and usage tracking.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,7 @@ import os
 from typing import Generator
 
 from core.api_client import GeminiClient
+from core.logger import log
 
 
 class EngineStatus:
@@ -40,8 +45,8 @@ class AIEngine:
             if gemini_key:
                 self._gemini = GeminiClient(gemini_key)
                 self.status.gemini_available = True
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning(f"설정 파일 로드 실패: {e}")
 
     def save_config(self, gemini_key: str = ""):
         os.makedirs(os.path.dirname(self._config_path), exist_ok=True)
@@ -50,8 +55,8 @@ class AIEngine:
             try:
                 with open(self._config_path, "r", encoding="utf-8") as f:
                     config = json.load(f)
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning(f"기존 설정 파일 읽기 실패, 새로 생성: {e}")
 
         if gemini_key:
             config["gemini_api_key"] = gemini_key
@@ -78,7 +83,8 @@ class AIEngine:
             return {
                 "gemini": config.get("gemini_api_key", ""),
             }
-        except Exception:
+        except Exception as e:
+            log.warning(f"API 키 읽기 실패: {e}")
             return {}
 
     def get_current_engine_name(self) -> str:

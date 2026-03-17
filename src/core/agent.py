@@ -8,6 +8,7 @@ from string import Template
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from core.engine import AIEngine
+from core.logger import log
 from core.media_specs import get_all_media_prompt
 
 
@@ -286,7 +287,8 @@ class AgentWorker(QThread):
                 from core.web_search import search_web, format_search_results
                 results = search_web(self._search_query, max_results=5)
                 self._search_context = f"[웹 검색 결과]\n{format_search_results(results)}"
-            except Exception:
+            except Exception as e:
+                log.warning(f"에이전트 웹 검색 실패: {e}")
                 self._search_context = "(웹 검색 실패)"
 
         all_results = []

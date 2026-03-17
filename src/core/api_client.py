@@ -1,4 +1,8 @@
-"""API client for Gemini with streaming support."""
+"""API client for Gemini with streaming support.
+
+Wraps the google-genai SDK to provide streaming chat, image generation,
+and availability checks used by the AIEngine.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +12,8 @@ from typing import Generator
 
 from google import genai
 from google.genai import types
+
+from core.logger import log
 
 
 def _load_image_part(image_path: str) -> types.Part:
@@ -49,8 +55,8 @@ class GeminiClient:
                 for img_path in image_paths:
                     try:
                         parts.append(_load_image_part(img_path))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.warning(f"이미지 로드 실패: {img_path}: {e}")
 
             contents.append(types.Content(role=role, parts=parts))
 
@@ -85,7 +91,8 @@ class GeminiClient:
                 if part.inline_data and part.inline_data.mime_type.startswith("image/"):
                     return part.inline_data.data
             return None
-        except Exception:
+        except Exception as e:
+            log.error(f"이미지 생성 실패: {e}")
             return None
 
     def chat_sync(
@@ -99,11 +106,13 @@ class GeminiClient:
         return "".join(result)
 
     def is_available(self) -> bool:
+        """Check if the Gemini API is reachable."""
         try:
             response = self._client.models.generate_content(
                 model=self._model_name,
                 contents="ping",
             )
             return bool(response.text)
-        except Exception:
+        except Exception as e:
+            log.debug(f"Gemini 연결 확인 실패: {e}")
             return False

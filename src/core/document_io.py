@@ -1,9 +1,15 @@
-"""Document I/O: read PDF/Word/Excel/PowerPoint/CSV/text, save to Word/text/PDF, clipboard."""
+"""Document I/O for 4Bro.
+
+Read: PDF (PyPDF2 + pdfplumber fallback), Word, Excel, PowerPoint, CSV, text.
+Write/Export: Word, PDF (via Qt QPrinter), clipboard (markdown).
+"""
 
 import csv
 import os
 import tempfile
 from pathlib import Path
+
+from core.logger import log
 
 # Max pages to render as images (prevent excessive API token use)
 MAX_PDF_IMAGE_PAGES = 10
@@ -25,8 +31,8 @@ def read_pdf(path: str) -> str:
                 texts.append(text)
         if texts:
             return "\n\n".join(texts)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"PyPDF2 추출 실패, pdfplumber로 전환: {e}")
 
     # Fallback: pdfplumber (handles more PDF types)
     try:
@@ -39,8 +45,8 @@ def read_pdf(path: str) -> str:
                     texts.append(text)
         if texts:
             return "\n\n".join(texts)
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug(f"pdfplumber 추출 실패: {e}")
 
     raise ValueError("NO_TEXT")
 
