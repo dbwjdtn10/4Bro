@@ -78,6 +78,13 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
             CREATE INDEX IF NOT EXISTS idx_bookmarks_project_id ON bookmarks(project_id);
             CREATE INDEX IF NOT EXISTS idx_bookmarks_conversation_id ON bookmarks(conversation_id);
+
+            CREATE TABLE IF NOT EXISTS templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now','localtime'))
+            );
             """)
             self._conn.commit()
 
@@ -332,4 +339,54 @@ class Database:
     def delete_bookmark(self, bookmark_id: int):
         with self._lock:
             self._conn.execute("DELETE FROM bookmarks WHERE id = ?", (bookmark_id,))
+            self._conn.commit()
+
+    # === Conversations (rename) ===
+
+    def rename_conversation(self, conv_id: int, new_title: str):
+        """Rename a conversation."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE conversations SET title = ? WHERE id = ?",
+                (new_title, conv_id),
+            )
+            self._conn.commit()
+
+    # === Templates ===
+
+    def add_template(self, name: str, content: str) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO templates (name, content) VALUES (?, ?)",
+                (name, content),
+            )
+            self._conn.commit()
+            return cur.lastrowid or 0
+
+    def list_templates(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, name, content, created_at FROM templates ORDER BY name"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_template(self, template_id: int) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id, name, content FROM templates WHERE id = ?",
+                (template_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def update_template(self, template_id: int, name: str, content: str):
+        with self._lock:
+            self._conn.execute(
+                "UPDATE templates SET name = ?, content = ? WHERE id = ?",
+                (name, content, template_id),
+            )
+            self._conn.commit()
+
+    def delete_template(self, template_id: int):
+        with self._lock:
+            self._conn.execute("DELETE FROM templates WHERE id = ?", (template_id,))
             self._conn.commit()

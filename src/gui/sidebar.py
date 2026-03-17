@@ -23,6 +23,7 @@ class Sidebar(QWidget):
     project_cleared = pyqtSignal()           # no project selected
     edit_project_requested = pyqtSignal(int)  # project DB id
     new_project_requested = pyqtSignal()
+    template_selected = pyqtSignal(str)  # template text to insert into input
 
     def __init__(self, db: Database, parent=None):
         super().__init__(parent)
@@ -35,6 +36,7 @@ class Sidebar(QWidget):
         self.setFixedWidth(220)
         self._init_ui()
         self.refresh_projects()
+        self.refresh_templates()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -129,6 +131,34 @@ class Sidebar(QWidget):
         self._recent_list.setMaximumHeight(100)
         self._recent_list.itemDoubleClicked.connect(self._on_recent_clicked)
         layout.addWidget(self._recent_list)
+
+        # --- Prompt templates ---
+        sep4 = QFrame()
+        sep4.setFrameShape(QFrame.Shape.HLine)
+        sep4.setStyleSheet("color: #45475a;")
+        layout.addWidget(sep4)
+
+        tmpl_header = QHBoxLayout()
+        tmpl_label = QLabel("프롬프트 템플릿")
+        tmpl_label.setStyleSheet("font-weight: bold; font-size: 12px; color: #a6adc8;")
+        tmpl_header.addWidget(tmpl_label)
+        tmpl_header.addStretch()
+
+        add_tmpl_btn = QPushButton("+")
+        add_tmpl_btn.setObjectName("cancel_btn")
+        add_tmpl_btn.setFixedSize(22, 22)
+        add_tmpl_btn.setToolTip("새 템플릿")
+        add_tmpl_btn.clicked.connect(self._on_add_template)
+        tmpl_header.addWidget(add_tmpl_btn)
+        layout.addLayout(tmpl_header)
+
+        self._template_list = QListWidget()
+        self._template_list.setObjectName("template_list")
+        self._template_list.setMaximumHeight(100)
+        self._template_list.itemClicked.connect(self._on_template_clicked)
+        self._template_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._template_list.customContextMenuRequested.connect(self._on_template_context_menu)
+        layout.addWidget(self._template_list)
 
     # --- Projects ---
 
@@ -233,10 +263,20 @@ class Sidebar(QWidget):
             return
 
         menu = QMenu(self)
+        rename_action = menu.addAction("이름 변경")
         delete_action = menu.addAction("삭제")
 
         action = menu.exec(self._conv_list.mapToGlobal(pos))
-        if action == delete_action:
+        if action == rename_action:
+            from PyQt6.QtWidgets import QInputDialog
+            new_title, ok = QInputDialog.getText(
+                self, "대화 이름 변경", "새 이름:",
+                text=item.text()
+            )
+            if ok and new_title.strip():
+                self._db.rename_conversation(conv_id, new_title.strip())
+                item.setText(new_title.strip())
+        elif action == delete_action:
             from PyQt6.QtWidgets import QMessageBox
             reply = QMessageBox.question(
                 self, "삭제 확인",
@@ -276,3 +316,52 @@ class Sidebar(QWidget):
         if filepath and os.path.isfile(filepath):
             import subprocess
             subprocess.Popen(["start", "", filepath], shell=True)
+
+    # --- Prompt templates ---
+
+    def refresh_templates(self):
+        """Load prompt templates from DB."""
+        self._template_list.clear()
+        for tmpl in self._db.list_templates():
+            item = QListWidgetItem(tmpl["name"])
+            item.setData(Qt.ItemDataRole.UserRole, tmpl["id"])
+            item.setToolTip(tmpl["content"][:100] + "..." if len(tmpl["content"]) > 100 else tmpl["content"])
+            self._template_list.addItem(item)
+
+    def _on_add_template(self):
+        from PyQt6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(self, "새 템플릿", "템플릿 이름:")
+        if not ok or not name.strip():
+            return
+        content, ok = QInputDialog.getMultiLineText(self, "템플릿 내용", "프롬프트 내용:")
+        if ok and content.strip():
+            self._db.add_template(name.strip(), content.strip())
+            self.refresh_templates()
+
+    def _on_template_clicked(self, item: QListWidgetItem):
+        tmpl_id = item.data(Qt.ItemDataRole.UserRole)
+        tmpl = self._db.get_template(tmpl_id)
+        if tmpl:
+            self.template_selected.emit(tmpl["content"])
+
+    def _on_template_context_menu(self, pos):
+        item = self._template_list.itemAt(pos)
+        if not item:
+            return
+        tmpl_id = item.data(Qt.ItemDataRole.UserRole)
+        menu = QMenu(self)
+        edit_action = menu.addAction("편집")
+        delete_action = menu.addAction("삭제")
+        action = menu.exec(self._template_list.mapToGlobal(pos))
+        if action == edit_action:
+            from PyQt6.QtWidgets import QInputDialog
+            tmpl = self._db.get_template(tmpl_id)
+            if tmpl:
+                content, ok = QInputDialog.getMultiLineText(
+                    self, "템플릿 편집", "프롬프트 내용:", text=tmpl["content"]
+                )
+                if ok and content.strip():
+                    self._db.update_template(tmpl_id, item.text(), content.strip())
+        elif action == delete_action:
+            self._db.delete_template(tmpl_id)
+            self.refresh_templates()
