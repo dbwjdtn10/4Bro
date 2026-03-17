@@ -1,4 +1,5 @@
-"""Main window: chat + agent mode, DB history, projects, bookmarks, Word/PDF export."""
+"""Main window: chat UI, agent workflows, DB history, projects, bookmarks,
+image generation, search, drag-drop, and Word/PDF/txt export."""
 
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ from PyQt6.QtGui import QShortcut, QKeySequence
 
 from core.engine import AIEngine
 from core.database import Database
+from core.logger import log
 from core.version import VERSION
 from core.prompts import get_system_prompt, build_chat_messages
 from core.worker import StreamWorker
@@ -28,10 +30,9 @@ from gui.input_bar import InputBar
 from gui.sidebar import Sidebar
 
 
-# --- Image generation worker (runs in QThread) ---
-
 class ImageGenWorker(QThread):
     """Worker thread for image generation to avoid blocking the UI."""
+
     finished = pyqtSignal(object)  # result (bytes, path, or text)
     error = pyqtSignal(str)
 
@@ -51,9 +52,9 @@ class ImageGenWorker(QThread):
 class MainWindow(QMainWindow):
     """4Bro main window with chat and agent modes."""
 
-    # --- Constants for pagination / context window ---
     _MSG_PAGE_SIZE = 50
     _API_CONTEXT_LIMIT = 20  # max messages sent to AI for context
+    _WELCOME_PREFIX = "안녕하세요"
 
     def __init__(self, engine: AIEngine, db: Database):
         super().__init__()
@@ -68,14 +69,14 @@ class MainWindow(QMainWindow):
         self._current_project_id: int | None = None
         self._mode: str = "ad_expert"
 
-        # Message lazy loading state
+        # Message lazy-loading state
         self._msg_offset: int = 0
         self._has_more_msgs: bool = False
 
-        # Message queue (Task 5)
-        self._message_queue: list[tuple[str, str, list]] = []  # [(text, doc_text, image_paths), ...]
+        # Message queue for sequential processing
+        self._message_queue: list[tuple[str, str, list]] = []
 
-        # Chat search state (Task 3)
+        # Chat search state
         self._search_matches: list[int] = []  # indices into _chat_history
         self._search_current: int = -1
 
@@ -92,6 +93,7 @@ class MainWindow(QMainWindow):
         self._sidebar.refresh_conversations(None)
 
     def _init_ui(self):
+        """Build the main window layout: sidebar + right panel (top bar, chat, input)."""
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QHBoxLayout(central)
@@ -163,7 +165,7 @@ class MainWindow(QMainWindow):
 
         right_layout.addWidget(top_bar)
 
-        # --- Search bar (hidden by default, toggled with Ctrl+F) ---
+        # Search bar (hidden by default, toggled with Ctrl+F)
         self._search_bar = QWidget()
         self._search_bar.setFixedHeight(38)
         self._search_bar.setStyleSheet(
@@ -189,7 +191,7 @@ class MainWindow(QMainWindow):
         self._search_count_label.setStyleSheet("color: #a6adc8; font-size: 11px;")
         search_layout.addWidget(self._search_count_label)
 
-        search_up_btn = QPushButton("▲")
+        search_up_btn = QPushButton("\u25b2")
         search_up_btn.setFixedSize(28, 28)
         search_up_btn.setStyleSheet(
             "QPushButton { background-color: #45475a; color: #cdd6f4; border: none; border-radius: 4px; }"
@@ -198,7 +200,7 @@ class MainWindow(QMainWindow):
         search_up_btn.clicked.connect(self._on_search_prev)
         search_layout.addWidget(search_up_btn)
 
-        search_down_btn = QPushButton("▼")
+        search_down_btn = QPushButton("\u25bc")
         search_down_btn.setFixedSize(28, 28)
         search_down_btn.setStyleSheet(
             "QPushButton { background-color: #45475a; color: #cdd6f4; border: none; border-radius: 4px; }"
@@ -207,7 +209,7 @@ class MainWindow(QMainWindow):
         search_down_btn.clicked.connect(self._on_search_next)
         search_layout.addWidget(search_down_btn)
 
-        search_close_btn = QPushButton("✕")
+        search_close_btn = QPushButton("\u2715")
         search_close_btn.setFixedSize(28, 28)
         search_close_btn.setStyleSheet(
             "QPushButton { background-color: #45475a; color: #cdd6f4; border: none; border-radius: 4px; }"
@@ -219,7 +221,7 @@ class MainWindow(QMainWindow):
         self._search_bar.hide()
         right_layout.addWidget(self._search_bar)
 
-        # --- "Load previous messages" button (Task 2) ---
+        # "Load previous messages" button
         self._load_prev_btn = QPushButton("이전 메시지 불러오기")
         self._load_prev_btn.setStyleSheet(
             "QPushButton {"
@@ -240,7 +242,7 @@ class MainWindow(QMainWindow):
         self._chat.edit_message_requested.connect(self._on_edit_message)
         right_layout.addWidget(self._chat, 1)
 
-        # Queue status label (Task 5)
+        # Queue status label
         self._queue_label = QLabel("")
         self._queue_label.setStyleSheet(
             "background-color: #313244; color: #f9e2af; font-size: 11px;"
@@ -273,12 +275,12 @@ class MainWindow(QMainWindow):
             "안녕하세요! 4Bro입니다.\n\n"
             "광고 카피, 캠페인 기획, 매체별 변형 등 무엇이든 말씀해 주세요.\n\n"
             "**주요 기능:**\n"
-            "- 상단 [에이전트] 버튼 → 자동 워크플로우 실행\n"
-            "- AI 응답 우클릭 → 북마크/복사/Word 저장\n"
-            "- Ctrl+F → 대화 내 검색 | Ctrl+N → 새 대화\n"
+            "- 상단 [에이전트] 버튼 \u2192 자동 워크플로우 실행\n"
+            "- AI 응답 우클릭 \u2192 북마크/복사/Word 저장\n"
+            "- Ctrl+F \u2192 대화 내 검색 | Ctrl+N \u2192 새 대화\n"
         )
         if not self._engine.status.gemini_available:
-            welcome += "\n⚠️ Gemini API 키가 설정되지 않았습니다. 상단 [설정]에서 API 키를 먼저 입력해주세요."
+            welcome += "\n\u26a0\ufe0f Gemini API 키가 설정되지 않았습니다. 상단 [설정]에서 API 키를 먼저 입력해주세요."
         self._chat.add_message("assistant", welcome)
         self._update_engine_status()
 
@@ -288,9 +290,8 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self._on_new_chat)
         QShortcut(QKeySequence("Ctrl+E"), self).activated.connect(self._on_export)
 
-        # Escape: close search bar (handled via keyPressEvent for broader capture)
-
     def keyPressEvent(self, event):
+        """Close search bar on Escape."""
         if event.key() == Qt.Key.Key_Escape and self._search_bar.isVisible():
             self._close_search()
         else:
@@ -299,7 +300,7 @@ class MainWindow(QMainWindow):
     # === Chat ===
 
     def _on_message_sent(self, text: str, doc_text: str, image_paths: list = None):
-        # Task 5: If worker is running, queue the message
+        """Handle a new message from the input bar; queue if worker is busy."""
         if self._worker and self._worker.isRunning():
             self._enqueue_message(text, doc_text, image_paths or [])
             return
@@ -352,9 +353,11 @@ class MainWindow(QMainWindow):
         self._worker.start()
 
     def _on_token(self, token: str):
+        """Append a streaming token to the current bubble."""
         self._chat.append_stream_token(token)
 
     def _on_stream_finished(self, full_text: str):
+        """Handle completed AI response."""
         self._chat.finish_streaming()
         self._chat_history.append({"role": "assistant", "content": full_text})
         self._input_bar.set_enabled(True)
@@ -363,10 +366,10 @@ class MainWindow(QMainWindow):
         if self._current_conv_id:
             self._db.add_message(self._current_conv_id, "assistant", full_text)
 
-        # Task 5: Process next queued message
         self._process_message_queue()
 
     def _on_stream_cancelled(self):
+        """Handle user-initiated stream cancellation."""
         self._chat.finish_streaming()
         # Remove orphaned user message so AI doesn't see unanswered question
         if self._chat_history and self._chat_history[-1]["role"] == "user":
@@ -374,11 +377,13 @@ class MainWindow(QMainWindow):
         self._input_bar.set_enabled(True)
         self._input_bar.set_focus()
 
-        # Task 5: Process next queued message even after cancel
         self._process_message_queue()
 
     def _on_stream_error(self, error: str):
+        """Handle streaming error with user-friendly messages."""
         self._chat.finish_streaming()
+        log.error("Stream error: %s", error)
+
         # Parse error for user-friendly message
         err_lower = error.lower()
         if "invalid" in err_lower and "key" in err_lower:
@@ -397,12 +402,13 @@ class MainWindow(QMainWindow):
             msg = "안전 필터에 의해 응답이 차단되었습니다. 다른 방식으로 질문해보세요."
         else:
             msg = f"오류가 발생했습니다:\n{error}"
+
         self._chat.add_message("assistant", msg)
         self._input_bar.set_enabled(True)
         self._input_bar.set_focus()
         self._process_message_queue()
 
-    # === Message Queue (Task 5) ===
+    # === Message Queue ===
 
     def _enqueue_message(self, text: str, doc_text: str, image_paths: list):
         """Add a message to the queue when the worker is busy."""
@@ -431,6 +437,7 @@ class MainWindow(QMainWindow):
     # === Agent Mode ===
 
     def _show_agent_menu(self):
+        """Display a popup menu listing available agent workflows."""
         menu = QMenu(self)
         for wf_id, wf in AGENT_WORKFLOWS.items():
             action = menu.addAction(f"{wf.display_name} - {wf.description}")
@@ -442,17 +449,17 @@ class MainWindow(QMainWindow):
             self._start_agent(wf_id)
 
     def _start_agent(self, workflow_id: str):
+        """Launch an agent workflow using the current input text."""
         wf = AGENT_WORKFLOWS.get(workflow_id)
         if not wf:
             return
 
-        # Get user input from input bar
-        text = self._input_bar._input.toPlainText().strip()
+        text = self._input_bar.get_text()
         if not text:
             QMessageBox.information(self, "알림", "작업 내용을 입력란에 먼저 입력해주세요.")
             return
 
-        self._input_bar._input.clear()
+        self._input_bar.clear_text()
         self._input_bar.set_enabled(False)
 
         # Create conversation
@@ -490,18 +497,22 @@ class MainWindow(QMainWindow):
         self._agent_worker.start()
 
     def _on_agent_step_started(self, index: int, name: str, total: int):
+        """Display a step header and begin streaming for the step."""
         self._chat.add_step_header(name, index, total)
         self._chat.start_streaming()
         self._status_bar.showMessage(f"Step {index + 1}/{total}: {name}")
 
     def _on_agent_token(self, index: int, token: str):
+        """Forward agent streaming tokens to the chat widget."""
         self._chat.append_stream_token(token)
 
     def _on_agent_step_completed(self, index: int, name: str, full_text: str):
+        """Finalize display for a completed agent step."""
         self._chat.finish_streaming()
         self._update_engine_status()
 
     def _on_agent_finished(self, combined_text: str):
+        """Handle agent workflow completion: auto-save and update UI."""
         self._input_bar.set_enabled(True)
         self._input_bar.set_focus()
 
@@ -520,10 +531,11 @@ class MainWindow(QMainWindow):
         self._chat_history.append({"role": "assistant", "content": combined_text})
         self._agent_worker = None
 
-        # Task 5: Process next queued message
         self._process_message_queue()
 
     def _on_agent_error(self, error: str):
+        """Handle agent workflow error with user-friendly messages."""
+        log.error("Agent error: %s", error)
         err_lower = error.lower()
         if "timeout" in err_lower or "connection" in err_lower:
             msg = "에이전트 실행 중 네트워크 오류가 발생했습니다. 인터넷 연결을 확인해주세요."
@@ -537,6 +549,7 @@ class MainWindow(QMainWindow):
         self._process_message_queue()
 
     def _auto_save_agent(self, text: str) -> str:
+        """Auto-save agent output to a Word file. Returns the saved path or ''."""
         try:
             docs_dir = os.path.join(os.path.expanduser("~"), "Documents", "4Bro")
             if self._current_project_id:
@@ -549,10 +562,11 @@ class MainWindow(QMainWindow):
             save_to_word(text, filepath)
             return filepath
         except Exception as e:
+            log.error("Agent auto-save failed: %s", e)
             self._status_bar.showMessage(f"Word 자동 저장 실패: {e}", 5000)
             return ""
 
-    # === Image Generation (Task 4) ===
+    # === Image Generation ===
 
     def _on_image_gen_requested(self, prompt: str):
         """Handle image generation request from input bar."""
@@ -631,6 +645,7 @@ class MainWindow(QMainWindow):
 
     def _on_image_gen_error(self, error: str):
         """Handle image generation error."""
+        log.error("Image generation failed: %s", error)
         self._input_bar.set_enabled(True)
         self._input_bar.set_focus()
         self._status_bar.showMessage("이미지 생성 실패", 3000)
@@ -643,7 +658,7 @@ class MainWindow(QMainWindow):
 
         self._image_gen_worker = None
 
-    # === Chat Search (Task 3) ===
+    # === Chat Search ===
 
     def _toggle_search(self):
         """Toggle the search bar visibility."""
@@ -703,16 +718,10 @@ class MainWindow(QMainWindow):
         current = self._search_current + 1
         self._search_count_label.setText(f"{current}/{total}개 발견")
 
-        # Scroll to the matching message in the chat widget.
-        # The match index corresponds to _chat_history index.
-        # In the chat widget, messages are displayed in order, but there may be
-        # an offset due to the welcome message or loaded-previous-messages.
-        # We use scroll_to_message if available, otherwise approximate.
         match_idx = self._search_matches[self._search_current]
         try:
             self._chat.scroll_to_message(match_idx)
         except (AttributeError, IndexError):
-            # ChatWidget may not have scroll_to_message yet; try highlight
             try:
                 self._chat.highlight_message(match_idx, self._search_input.text())
             except (AttributeError, IndexError):
@@ -779,21 +788,22 @@ class MainWindow(QMainWindow):
 
     def _on_edit_message(self, original_text: str):
         """Put the original message text back into the input bar for editing."""
-        self._input_bar._input.setPlainText(original_text)
-        self._input_bar._input.setFocus()
+        self._input_bar.set_text(original_text)
+        self._input_bar.set_focus()
         self._status_bar.showMessage("메시지를 수정한 후 다시 전송하세요.", 3000)
 
     def _on_template_selected(self, text: str):
         """Insert template text into the input bar."""
-        current = self._input_bar._input.toPlainText()
-        if current.strip():
-            self._input_bar._input.setPlainText(current + "\n\n" + text)
+        current = self._input_bar.get_text()
+        if current:
+            self._input_bar.set_text(current + "\n\n" + text)
         else:
-            self._input_bar._input.setPlainText(text)
-        self._input_bar._input.setFocus()
+            self._input_bar.set_text(text)
+        self._input_bar.set_focus()
         self._status_bar.showMessage("템플릿이 입력란에 추가되었습니다.", 3000)
 
     def dragEnterEvent(self, event):
+        """Accept drag events containing file URLs."""
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
         else:
@@ -838,7 +848,7 @@ class MainWindow(QMainWindow):
         if image_paths:
             self._input_bar._image_paths.extend(image_paths)
             names = [os.path.basename(p) for p in self._input_bar._image_paths]
-            self._input_bar._image_label.setText(f"🖼 {', '.join(names)}  [x]")
+            self._input_bar._image_label.setText(f"\U0001f5bc {', '.join(names)}  [x]")
             self._input_bar._image_label.show()
             self._input_bar._image_label.mousePressEvent = lambda e: self._input_bar._clear_images()
 
@@ -852,6 +862,7 @@ class MainWindow(QMainWindow):
     # === Bookmarks ===
 
     def _on_bookmark(self, text: str):
+        """Save a message to bookmarks."""
         self._db.add_bookmark(
             content=text,
             conversation_id=self._current_conv_id,
@@ -859,9 +870,10 @@ class MainWindow(QMainWindow):
         )
         self._status_bar.showMessage("북마크에 추가되었습니다.", 3000)
 
-    # === Export (Task 6: extended) ===
+    # === Export ===
 
     def _on_export(self):
+        """Show export options menu."""
         menu = QMenu(self)
         word_action = menu.addAction("현재 대화 Word로 저장")
         txt_action = menu.addAction("현재 대화 txt로 저장")
@@ -883,6 +895,7 @@ class MainWindow(QMainWindow):
             self._export_bookmarks()
 
     def _export_chat(self, fmt: str):
+        """Export current chat history in the specified format."""
         if not self._chat_history:
             QMessageBox.information(self, "알림", "내보낼 대화가 없습니다.")
             return
@@ -906,6 +919,7 @@ class MainWindow(QMainWindow):
                     self._sidebar.add_recent_file(path)
                     self._status_bar.showMessage(f"PDF 저장됨: {path}", 3000)
                 except Exception as e:
+                    log.error("PDF export failed: %s", e)
                     QMessageBox.warning(self, "오류", f"PDF 저장 실패:\n{e}")
         else:
             path, _ = QFileDialog.getSaveFileName(self, "텍스트로 저장", "", "Text Files (*.txt)")
@@ -923,6 +937,7 @@ class MainWindow(QMainWindow):
         self._status_bar.showMessage("대화가 클립보드에 복사되었습니다.", 3000)
 
     def _export_bookmarks(self):
+        """Export all bookmarks for the current project to a Word file."""
         bookmarks = self._db.list_bookmarks(self._current_project_id)
         if not bookmarks:
             QMessageBox.information(self, "알림", "저장된 북마크가 없습니다.")
@@ -938,9 +953,10 @@ class MainWindow(QMainWindow):
             self._sidebar.add_recent_file(path)
             self._status_bar.showMessage(f"북마크 저장됨: {path}", 3000)
 
-    # === Conversations (Task 2: lazy load messages) ===
+    # === Conversations (lazy-load messages) ===
 
     def _on_new_chat(self):
+        """Start a fresh conversation."""
         self._current_conv_id = None
         self._chat_history = []
         self._msg_offset = 0
@@ -950,11 +966,13 @@ class MainWindow(QMainWindow):
         self._chat.add_message("assistant", "새 대화를 시작합니다. 무엇을 도와드릴까요?")
 
     def _on_conv_deleted(self, conv_id: int):
+        """Handle conversation deletion from sidebar."""
         if conv_id == self._current_conv_id:
             self._on_new_chat()
             self._status_bar.showMessage("대화가 삭제되었습니다.", 3000)
 
     def _on_conv_selected(self, conv_id: int):
+        """Load and display a conversation selected from the sidebar."""
         if conv_id == self._current_conv_id:
             return
         if self._search_bar.isVisible():
@@ -972,7 +990,6 @@ class MainWindow(QMainWindow):
             self._has_more_msgs = total > len(messages)
             self._msg_offset = len(messages)
         except (AttributeError, TypeError):
-            # count_messages may not exist yet; assume no more
             self._has_more_msgs = len(messages) >= self._MSG_PAGE_SIZE
             self._msg_offset = len(messages)
 
@@ -1017,16 +1034,12 @@ class MainWindow(QMainWindow):
             self._load_prev_btn.hide()
             return
 
-        # Prepend to chat history and display
-        # We need to rebuild the chat display with older messages first
+        # Prepend older messages to chat history
         new_history = []
         for msg in older_messages:
             new_history.append({"role": msg["role"], "content": msg["content"]})
 
-        # Save the number of new messages prepended
         new_count = len(older_messages)
-
-        # Prepend older messages to chat history
         self._chat_history = new_history + self._chat_history
 
         # Rebuild the chat display
@@ -1059,6 +1072,7 @@ class MainWindow(QMainWindow):
     # === Projects ===
 
     def _on_project_selected(self, project_id: int):
+        """Switch to the selected project and filter conversations."""
         self._current_project_id = project_id
         proj = self._db.get_project(project_id)
         if proj:
@@ -1067,11 +1081,13 @@ class MainWindow(QMainWindow):
         self._sidebar.refresh_conversations(project_id)
 
     def _on_project_cleared(self):
+        """Clear project filter and show all conversations."""
         self._current_project_id = None
         self._project_label.setText("")
         self._sidebar.refresh_conversations(None)
 
     def _on_new_project(self):
+        """Open the project creation dialog."""
         from gui.project_dialog import ProjectDialog
         dialog = ProjectDialog(self._db, parent=self)
         if dialog.exec() == 1:
@@ -1080,6 +1096,7 @@ class MainWindow(QMainWindow):
                 self._on_project_selected(dialog.project_id)
 
     def _on_edit_project(self, project_id: int):
+        """Open the project editing dialog."""
         from gui.project_dialog import ProjectDialog
         dialog = ProjectDialog(self._db, project_id=project_id, parent=self)
         result = dialog.exec()
@@ -1090,10 +1107,12 @@ class MainWindow(QMainWindow):
     # === Mode / Settings ===
 
     def _on_mode_changed(self, idx: int):
+        """Handle AI mode change (ad expert / general)."""
         self._mode = self._mode_combo.itemData(idx)
         self._status_bar.showMessage(f"모드 변경: {self._mode_combo.currentText()}", 3000)
 
     def _on_settings(self):
+        """Open the settings dialog."""
         from gui.settings_dialog import SettingsDialog
         dialog = SettingsDialog(self._engine, self)
         if dialog.exec():
@@ -1103,19 +1122,23 @@ class MainWindow(QMainWindow):
     # === Status ===
 
     def _update_engine_status(self):
+        """Refresh the engine and usage labels in the status bar."""
         self._engine_label.setText(f"엔진: {self._engine.get_current_engine_name()}")
         self._usage_label.setText(f"사용량: {self._engine.get_usage_text()}")
 
     def _start_status_timer(self):
+        """Start periodic RAM usage monitoring."""
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._update_resource_status)
         self._timer.start(5000)
 
     def _update_resource_status(self):
+        """Update the RAM usage display in the status bar."""
         ram = psutil.virtual_memory()
         self._ram_label.setText(f"RAM: {ram.used / (1024**3):.1f}/{ram.total / (1024**3):.1f}GB")
 
     def closeEvent(self, event):
+        """Persist window geometry and clean up workers on close."""
         self._settings.setValue("geometry", self.saveGeometry())
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
