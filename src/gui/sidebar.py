@@ -168,9 +168,16 @@ class Sidebar(QWidget):
         if action == edit_action:
             self.edit_project_requested.emit(proj_id)
         elif action == delete_action:
-            self._db.delete_project(proj_id)
-            self.refresh_projects()
-            self.project_cleared.emit()
+            from PyQt6.QtWidgets import QMessageBox
+            reply = QMessageBox.question(
+                self, "삭제 확인",
+                f"프로젝트 '{item.text()}'을(를) 삭제하시겠습니까?\n관련 대화는 유지됩니다.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._db.delete_project(proj_id)
+                self.refresh_projects()
+                self.project_cleared.emit()
 
     # --- Conversations (paginated) ---
 
@@ -230,9 +237,16 @@ class Sidebar(QWidget):
 
         action = menu.exec(self._conv_list.mapToGlobal(pos))
         if action == delete_action:
-            self._db.delete_conversation(conv_id)
-            self.refresh_conversations(Sidebar._KEEP_FILTER)
-            self.conversation_deleted.emit(conv_id)
+            from PyQt6.QtWidgets import QMessageBox
+            reply = QMessageBox.question(
+                self, "삭제 확인",
+                f"대화 '{item.text()}'을(를) 삭제하시겠습니까?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._db.delete_conversation(conv_id)
+                self.refresh_conversations(Sidebar._KEEP_FILTER)
+                self.conversation_deleted.emit(conv_id)
 
     def set_active_conversation(self, conv_id: int):
         for i in range(self._conv_list.count()):

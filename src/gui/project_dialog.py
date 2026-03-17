@@ -135,7 +135,11 @@ class ProjectDialog(QDialog):
                 self._project_id = self._db.create_project(**data)
             self.accept()
         except Exception as e:
-            QMessageBox.warning(self, "오류", f"저장 실패: {e}")
+            err_str = str(e)
+            if "UNIQUE" in err_str or "unique" in err_str:
+                QMessageBox.warning(self, "알림", f"'{name}' 이름은 이미 사용 중입니다.\n다른 이름을 입력해주세요.")
+            else:
+                QMessageBox.warning(self, "오류", f"저장 실패: {e}")
 
     def _on_delete(self):
         reply = QMessageBox.question(
