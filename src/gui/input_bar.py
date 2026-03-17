@@ -1,4 +1,4 @@
-"""Bottom input bar: text input, file/image attach, image gen, send button."""
+"""Bottom input bar: text input, file/image attach, image generation, send button."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ class ChatInput(QTextEdit):
         self.setObjectName("chat_input")
 
     def keyPressEvent(self, event: QKeyEvent):
+        """Send on Enter; insert newline on Shift+Enter."""
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                 super().keyPressEvent(event)
@@ -54,6 +55,7 @@ class InputBar(QWidget):
         self._init_ui()
 
     def _init_ui(self):
+        """Build the input bar layout."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 8, 16, 12)
         layout.setSpacing(4)
@@ -76,7 +78,7 @@ class InputBar(QWidget):
         input_row.setSpacing(8)
 
         # File attach button
-        self._attach_btn = QPushButton("📎")
+        self._attach_btn = QPushButton("\U0001f4ce")
         self._attach_btn.setObjectName("attach_btn")
         self._attach_btn.setFixedSize(40, 40)
         self._attach_btn.setToolTip("파일 첨부 (PDF, Word, Excel, PPT, CSV, 텍스트)")
@@ -84,7 +86,7 @@ class InputBar(QWidget):
         input_row.addWidget(self._attach_btn)
 
         # Image attach button
-        self._image_btn = QPushButton("🖼")
+        self._image_btn = QPushButton("\U0001f5bc")
         self._image_btn.setObjectName("attach_btn")
         self._image_btn.setFixedSize(40, 40)
         self._image_btn.setToolTip("이미지 첨부 (분석용)")
@@ -92,7 +94,7 @@ class InputBar(QWidget):
         input_row.addWidget(self._image_btn)
 
         # Image generation button
-        self._image_gen_btn = QPushButton("🎨")
+        self._image_gen_btn = QPushButton("\U0001f3a8")
         self._image_gen_btn.setObjectName("attach_btn")
         self._image_gen_btn.setFixedSize(40, 40)
         self._image_gen_btn.setToolTip("이미지 생성 (입력 텍스트를 프롬프트로 사용)")
@@ -139,7 +141,24 @@ class InputBar(QWidget):
 
         layout.addLayout(input_row)
 
+    # --- Public API for text access ---
+
+    def get_text(self) -> str:
+        """Get current input text."""
+        return self._input.toPlainText().strip()
+
+    def set_text(self, text: str):
+        """Set input text."""
+        self._input.setPlainText(text)
+
+    def clear_text(self):
+        """Clear input text."""
+        self._input.clear()
+
+    # --- File attachment ---
+
     def _on_attach_file(self):
+        """Open a file dialog to attach one or more documents."""
         paths, _ = QFileDialog.getOpenFileNames(
             self, "파일 첨부 (여러 파일 선택 가능)", "",
             "Documents (*.pdf *.docx *.xlsx *.pptx *.csv *.txt *.md *.json *.xml *.html *.yaml *.yml *.log);;All Files (*)",
@@ -169,7 +188,7 @@ class InputBar(QWidget):
         self._update_attach_label()
         if errors:
             self._attach_label.setText(
-                self._attach_label.text() + f"  ⚠ 실패: {', '.join(errors)}"
+                self._attach_label.text() + f"  \u26a0 실패: {', '.join(errors)}"
             )
 
     def _update_attach_label(self):
@@ -180,12 +199,12 @@ class InputBar(QWidget):
             return
         if len(self._doc_texts) == 1:
             fname, text = self._doc_texts[0]
-            self._attach_label.setText(f"📎 {fname} ({len(text):,}자)  [x]")
+            self._attach_label.setText(f"\U0001f4ce {fname} ({len(text):,}자)  [x]")
         else:
             total = sum(len(t) for _, t in self._doc_texts)
             names = [f for f, _ in self._doc_texts]
             self._attach_label.setText(
-                f"📎 {len(names)}개 파일 ({', '.join(names)}) · 총 {total:,}자  [x]"
+                f"\U0001f4ce {len(names)}개 파일 ({', '.join(names)}) \u00b7 총 {total:,}자  [x]"
             )
         self._attach_label.show()
         self._attach_label.mousePressEvent = lambda e: self._clear_doc()
@@ -207,7 +226,7 @@ class InputBar(QWidget):
             self._doc_texts.append((filename, scan_text))
 
             self._attach_label.setText(
-                f"📎 {filename} (스캔 PDF → 이미지 {n_pages}장 변환)  [x]"
+                f"\U0001f4ce {filename} (스캔 PDF \u2192 이미지 {n_pages}장 변환)  [x]"
             )
             self._attach_label.show()
             # Clicking [x] clears both doc and images (they're linked for scanned PDFs)
@@ -215,7 +234,7 @@ class InputBar(QWidget):
 
             # Also show in image label
             self._image_label.setText(
-                f"🖼 PDF 페이지 이미지 {n_pages}장  [x]"
+                f"\U0001f5bc PDF 페이지 이미지 {n_pages}장  [x]"
             )
             self._image_label.show()
             self._image_label.mousePressEvent = lambda e: self._clear_all_attachments()
@@ -229,6 +248,7 @@ class InputBar(QWidget):
         self._clear_images()
 
     def _on_attach_image(self):
+        """Open a file dialog to attach one or more images."""
         paths, _ = QFileDialog.getOpenFileNames(
             self, "이미지 첨부", "",
             "Images (*.png *.jpg *.jpeg *.gif *.bmp *.webp);;All Files (*)",
@@ -240,22 +260,27 @@ class InputBar(QWidget):
                 self._image_paths.extend(new_paths)
             names = [os.path.basename(p) for p in self._image_paths]
             self._image_label.setText(
-                f"🖼 {', '.join(names)}  [x]"
+                f"\U0001f5bc {', '.join(names)}  [x]"
             )
             self._image_label.show()
             self._image_label.mousePressEvent = lambda e: self._clear_images()
 
     def _clear_doc(self):
+        """Clear all attached document texts."""
         self._doc_texts = []
         self._attach_label.hide()
         self._attach_label.setText("")
 
     def _clear_images(self):
+        """Clear all attached image paths."""
         self._image_paths = []
         self._image_label.hide()
         self._image_label.setText("")
 
+    # --- Send / Image gen ---
+
     def _on_send(self):
+        """Emit the message_sent signal with current input and attachments."""
         text = self._input.toPlainText().strip()
         if not text and not self._doc_texts:
             self._input.setPlaceholderText("\U0001f4ac 메시지를 입력해주세요!")
@@ -269,7 +294,7 @@ class InputBar(QWidget):
         elif self._doc_texts:
             parts = []
             for fname, doc in self._doc_texts:
-                parts.append(f"=== 📎 {fname} ===\n{doc}")
+                parts.append(f"=== \U0001f4ce {fname} ===\n{doc}")
             combined = "\n\n".join(parts)
         else:
             combined = ""
@@ -287,7 +312,10 @@ class InputBar(QWidget):
             return
         self.image_gen_requested.emit(text)
 
+    # --- Enable / Focus ---
+
     def set_enabled(self, enabled: bool):
+        """Enable or disable the input bar, toggling send/stop buttons."""
         self._input.setEnabled(enabled)
         self._send_btn.setEnabled(enabled)
         self._attach_btn.setEnabled(enabled)
@@ -303,4 +331,5 @@ class InputBar(QWidget):
             self._stop_btn.show()
 
     def set_focus(self):
+        """Set keyboard focus to the text input."""
         self._input.setFocus()

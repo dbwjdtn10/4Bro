@@ -12,7 +12,13 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 
-# Module-level storage for code block raw texts (used by copy-code:// links)
+# Module-level storage for code block raw texts, referenced by copy-code://
+# links in the rendered HTML. This list is cleared and rebuilt each time
+# markdown_to_html() is called, so it always corresponds to the most recently
+# rendered message. The design is intentionally module-level because
+# QTextBrowser link-click handlers need access to the raw code text by index,
+# and storing it per-bubble would require passing additional context through
+# the URL scheme.
 _code_block_texts: list[str] = []
 
 
@@ -193,7 +199,7 @@ class MessageBubble(QFrame):
         self._label_widget.setVisible(False)
         layout.addWidget(self._label_widget)
 
-        # Content display – QTextBrowser for rich HTML + link handling
+        # Content display -- QTextBrowser for rich HTML + link handling
         self._content = QTextBrowser()
         self._content.setOpenLinks(False)  # Handle links manually
         self._content.anchorClicked.connect(self._on_link_clicked)
@@ -229,6 +235,7 @@ class MessageBubble(QFrame):
         self._content.setFixedHeight(max(doc_height + 8, 20))
 
     def _show_context_menu(self, pos):
+        """Display a context menu with role-specific actions."""
         menu = QMenu(self)
 
         if self._role == "assistant":
@@ -298,6 +305,7 @@ class MessageBubble(QFrame):
             QDesktopServices.openUrl(url)
 
     def _save_as_word(self):
+        """Save this bubble's content to a Word document."""
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
         path, _ = QFileDialog.getSaveFileName(self, "Word로 저장", "", "Word Files (*.docx)")
         if path:
@@ -320,6 +328,7 @@ class MessageBubble(QFrame):
             self._content.setHtml(markdown_to_html(self._raw_text))
 
     def set_text(self, text: str):
+        """Replace the bubble content."""
         self._raw_text = text
         if self._role == "assistant":
             self._content.setHtml(markdown_to_html(text))
@@ -327,6 +336,7 @@ class MessageBubble(QFrame):
             self._content.setPlainText(text)
 
     def get_text(self) -> str:
+        """Return the raw (un-rendered) text."""
         return self._raw_text
 
     def set_bookmark_info(self, bookmark_id: int, label: str = ""):
@@ -369,6 +379,7 @@ class ChatWidget(QScrollArea):
         self._regen_btn: QPushButton | None = None
 
     def add_message(self, role: str, text: str) -> MessageBubble:
+        """Add a fully-formed message bubble to the chat."""
         bubble = MessageBubble(role, text)
         bubble.bookmark_requested.connect(self.bookmark_requested.emit)
         bubble.bookmark_label_edit_requested.connect(self.bookmark_label_changed.emit)
@@ -382,6 +393,7 @@ class ChatWidget(QScrollArea):
         return bubble
 
     def start_streaming(self) -> MessageBubble:
+        """Begin streaming an assistant response; returns the bubble being filled."""
         self._remove_regen_button()
         bubble = MessageBubble("assistant", "")
         bubble.bookmark_requested.connect(self.bookmark_requested.emit)
@@ -392,11 +404,13 @@ class ChatWidget(QScrollArea):
         return bubble
 
     def append_stream_token(self, token: str):
+        """Append a token to the currently streaming bubble."""
         if self._streaming_bubble:
             self._streaming_bubble.append_text(token)
             self._scroll_to_bottom()
 
     def finish_streaming(self) -> str:
+        """Finalize the streaming bubble (render markdown) and return its text."""
         text = ""
         if self._streaming_bubble:
             self._streaming_bubble.finish_render()
@@ -406,6 +420,7 @@ class ChatWidget(QScrollArea):
         return text
 
     def clear_chat(self):
+        """Remove all message bubbles and step headers."""
         self._remove_regen_button()
         for bubble in self._bubbles:
             self._layout.removeWidget(bubble)
@@ -430,12 +445,8 @@ class ChatWidget(QScrollArea):
 
     def scroll_to_message(self, history_index: int):
         """Scroll to a message by its index in chat history (excluding welcome msg)."""
-        # Account for welcome message offset: first bubble might be welcome message
-        # The history_index maps to _bubbles but with possible offset
         bubble_idx = history_index
-        # If first bubble is the welcome message, offset by 1
-        if self._bubbles and self._bubbles[0].get_text().startswith("안녕하세요") or \
-           self._bubbles and self._bubbles[0].get_text().startswith("새 대화를"):
+        if self._bubbles and self._is_welcome_bubble(self._bubbles[0]):
             bubble_idx += 1
 
         if 0 <= bubble_idx < len(self._bubbles):
@@ -443,13 +454,11 @@ class ChatWidget(QScrollArea):
             self.ensureWidgetVisible(bubble, 50, 50)
 
     def highlight_message(self, history_index: int, query: str = ""):
-        """Highlight a message by adding a temporary border, and optionally highlight matching text."""
-        # Reset all highlights first
+        """Highlight a message by adding a temporary border."""
         self._clear_highlights()
 
         bubble_idx = history_index
-        if self._bubbles and (self._bubbles[0].get_text().startswith("안녕하세요") or
-                              self._bubbles[0].get_text().startswith("새 대화를")):
+        if self._bubbles and self._is_welcome_bubble(self._bubbles[0]):
             bubble_idx += 1
 
         if 0 <= bubble_idx < len(self._bubbles):
@@ -460,6 +469,11 @@ class ChatWidget(QScrollArea):
             )
             bubble.setProperty("highlighted", True)
             self.ensureWidgetVisible(bubble, 50, 50)
+
+    def _is_welcome_bubble(self, bubble: MessageBubble) -> bool:
+        """Check whether a bubble is a welcome / new-chat greeting."""
+        text = bubble.get_text()
+        return text.startswith("안녕하세요") or text.startswith("새 대화를")
 
     def _clear_highlights(self):
         """Remove highlight styling from all bubbles."""
@@ -494,6 +508,7 @@ class ChatWidget(QScrollArea):
             self._regen_btn = None
 
     def _scroll_to_bottom(self):
+        """Scroll the chat area to the bottom after a short delay."""
         QTimer.singleShot(10, lambda: self.verticalScrollBar().setValue(
             self.verticalScrollBar().maximum()
         ))
